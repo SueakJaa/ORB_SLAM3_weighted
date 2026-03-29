@@ -25,10 +25,28 @@
 
 #include<System.h>
 
+#include <opencv2/opencv.hpp>
+using namespace cv;
+
 using namespace std;
 
 void LoadImages(const string &strAssociationFilename, vector<string> &vstrImageFilenamesRGB,
                 vector<string> &vstrImageFilenamesD, vector<double> &vTimestamps);
+
+cv::Mat ApplySimpleMask(const cv::Mat& input)
+{
+    cv::Mat output = input.clone();
+
+    int x1 = input.cols * 0.3;
+    int x2 = input.cols * 0.7;
+    int y1 = input.rows * 0.3;
+    int y2 = input.rows * 0.7;
+
+    cv::rectangle(output, cv::Point(x1,y1), cv::Point(x2,y2),
+                  cv::Scalar(0,0,0), -1);
+
+    return output;
+}
 
 int main(int argc, char **argv)
 {
@@ -76,6 +94,10 @@ int main(int argc, char **argv)
     {
         // Read image and depthmap from file
         imRGB = cv::imread(string(argv[3])+"/"+vstrImageFilenamesRGB[ni],cv::IMREAD_UNCHANGED); //,cv::IMREAD_UNCHANGED);
+        
+        // Apply mask BEFORE SLAM
+        imRGB = ApplySimpleMask(imRGB);
+
         imD = cv::imread(string(argv[3])+"/"+vstrImageFilenamesD[ni],cv::IMREAD_UNCHANGED); //,cv::IMREAD_UNCHANGED);
         double tframe = vTimestamps[ni];
 
