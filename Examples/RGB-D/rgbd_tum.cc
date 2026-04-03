@@ -33,21 +33,6 @@ using namespace std;
 void LoadImages(const string &strAssociationFilename, vector<string> &vstrImageFilenamesRGB,
                 vector<string> &vstrImageFilenamesD, vector<double> &vTimestamps);
 
-cv::Mat ApplySimpleMask(const cv::Mat& input)
-{
-    cv::Mat output = input.clone();
-
-    int x1 = input.cols * 0.3;
-    int x2 = input.cols * 0.7;
-    int y1 = input.rows * 0.3;
-    int y2 = input.rows * 0.7;
-
-    cv::rectangle(output, cv::Point(x1,y1), cv::Point(x2,y2),
-                  cv::Scalar(0,0,0), -1);
-
-    return output;
-}
-
 int main(int argc, char **argv)
 {
     if(argc != 5)
@@ -77,7 +62,7 @@ int main(int argc, char **argv)
     }
 
     // Create SLAM system. It initializes all system threads and gets ready to process frames.
-    ORB_SLAM3::System SLAM(argv[1],argv[2],ORB_SLAM3::System::RGBD,true);
+    ORB_SLAM3::System SLAM(argv[1],argv[2],ORB_SLAM3::System::RGBD,false);
     float imageScale = SLAM.GetImageScale();
 
     // Vector for tracking time statistics
@@ -96,7 +81,7 @@ int main(int argc, char **argv)
         imRGB = cv::imread(string(argv[3])+"/"+vstrImageFilenamesRGB[ni],cv::IMREAD_UNCHANGED); //,cv::IMREAD_UNCHANGED);
         
         // Apply mask BEFORE SLAM
-        imRGB = ApplySimpleMask(imRGB);
+        //imRGB = ApplySimpleMask(imRGB);
 
         imD = cv::imread(string(argv[3])+"/"+vstrImageFilenamesD[ni],cv::IMREAD_UNCHANGED); //,cv::IMREAD_UNCHANGED);
         double tframe = vTimestamps[ni];
@@ -122,10 +107,14 @@ int main(int argc, char **argv)
         std::chrono::monotonic_clock::time_point t1 = std::chrono::monotonic_clock::now();
 #endif
 
-        // Pass the image to the SLAM system
-        SLAM.TrackRGBD(imRGB,imD,tframe);
+// Show masked image (debug)
+cv::imshow("Masked RGB", imRGB);
+cv::waitKey(1);
 
-#ifdef COMPILEDWITHC11
+// Pass the image to the SLAM system
+SLAM.TrackRGBD(imRGB,imD,tframe);
+
+      #ifdef COMPILEDWITHC11
         std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
 #else
         std::chrono::monotonic_clock::time_point t2 = std::chrono::monotonic_clock::now();
