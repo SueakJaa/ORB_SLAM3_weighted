@@ -1073,6 +1073,12 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
     if(N == 0)
         return;
 
+        // Feature weights
+        mvFeatureWeight = std::vector<float>(N, 1.0f);
+
+        // Dynamic mask (initialize empty)
+        mDynamicMask = cv::Mat();
+
     // This is done only for the first Frame (or after a change in the calibration)
     if(mbInitialComputations)
     {
