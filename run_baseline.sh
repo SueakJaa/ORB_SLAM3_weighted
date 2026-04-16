@@ -1,6 +1,6 @@
 #!/bin/bash
 
-DATASET=~/datasets/rgbd_dataset_freiburg3_sitting_static
+DATASET=~/datasets/rgbd_dataset_freiburg3_walking_xyz
 ASSOC=$DATASET/association_new.txt
 GT=$DATASET/groundtruth.txt
 

@@ -3016,8 +3016,7 @@ bool Tracking::TrackLocalMap()
     UpdateLocalMap();
     SearchLocalPoints();
 
-    // ===== ADD THIS BLOCK =====
-
+ 
 
           // TOO check outliers before PO
     int aux1 = 0, aux2=0;
@@ -3029,25 +3028,8 @@ bool Tracking::TrackLocalMap()
                 aux2++;
         }
 // ===== DYNAMIC SUPPRESSION =====
-if(mbUseDynamic)
-{
-    int removed = 0;
 
-    for(int i = 0; i < mCurrentFrame.N; i++)
-    {
-        if(i >= mCurrentFrame.mvFeatureWeight.size()) continue;
-        if(!mCurrentFrame.mvpMapPoints[i]) continue;
-        if(mCurrentFrame.mvbOutlier[i]) continue;
 
-        if(mCurrentFrame.mvFeatureWeight[i] < 0.2f)
-        {
-            mCurrentFrame.mvpMapPoints[i] = NULL;
-            removed++;
-        }
-    }
-
-    std::cout << "Removed points: " << removed << std::endl;
-}
     int inliers;
     if (!mpAtlas->isImuInitialized())
         Optimizer::PoseOptimization(&mCurrentFrame);
@@ -3072,6 +3054,187 @@ if(mbUseDynamic)
                 inliers = Optimizer::PoseInertialOptimizationLastKeyFrame(&mCurrentFrame); // , !mpLastKeyFrame->GetMap()->GetIniertialBA1());
             }
         }
+    }
+    // ===== EPIPOLAR PREP =====
+    //Sophus::SE3f Tcw_curr = mCurrentFrame.GetPose();
+    //Sophus::SE3f Tcw_last = mLastFrame.GetPose();
+
+    // relative pose: last → current
+    //Sophus::SE3f T_rel = Tcw_curr * Tcw_last.inverse();
+
+    //Eigen::Matrix3f R = T_rel.rotationMatrix();
+    //Eigen::Vector3f t = T_rel.translation();
+
+    // skew-symmetric matrix of t
+    //Eigen::Matrix3f t_x;
+    //t_x <<     0, -t(2),  t(1),
+            //t(2),     0, -t(0),
+            //-t(1),  t(0),     0;
+
+    // Essential matrix
+    //Eigen::Matrix3f E = t_x * R;
+    // ===== ADD =============================
+    if(mbUseDynamic)
+    {
+        int refined = 0;
+
+        // 🔥 ADD THIS LINE HERE
+        static std::map<MapPoint*, int> dynamicCount;
+
+        for(int i = 0; i < mCurrentFrame.N; i++)
+        {
+            if(i >= mCurrentFrame.mvFeatureWeight.size()) continue;
+            if(!mCurrentFrame.mvpMapPoints[i]) continue;
+
+            MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
+
+            // ===== GET MATCH IN LAST FRAME (DO ONCE) =====
+            int last_idx = -1;
+
+            if(pMP && pMP->mnLastFrameSeen == mLastFrame.mnId)
+            {
+                for(int k = 0; k < mLastFrame.N; k++)
+                {
+                    if(mLastFrame.mvpMapPoints[k] == pMP)
+                    {
+                        last_idx = k;
+                        break;
+                    }
+                }
+            }
+
+            // ===== IF MATCH FOUND → APPLY GEOMETRY =====
+            if(last_idx >= 0)
+            {
+                // ===== 1. MOTION CONSISTENCY (OUTSIDE) =====
+
+                float dx = mCurrentFrame.mvKeys[i].pt.x - mLastFrame.mvKeys[last_idx].pt.x;
+                float dy = mCurrentFrame.mvKeys[i].pt.y - mLastFrame.mvKeys[last_idx].pt.y;
+
+                float motion = sqrt(dx*dx + dy*dy);
+
+                if(motion > 15.0f)
+                {
+                    mCurrentFrame.mvFeatureWeight[i] *= 0.5f;
+                }
+                
+            
+                // ===== EPIPOLAR CONSISTENCY =====
+                // current point
+                //float u1 = mCurrentFrame.mvKeys[i].pt.x;
+                //float v1 = mCurrentFrame.mvKeys[i].pt.y;
+
+                // last frame point
+                //float u2 = mLastFrame.mvKeys[last_idx].pt.x;
+                //float v2 = mLastFrame.mvKeys[last_idx].pt.y;
+
+                //Eigen::Vector3f x1(u1, v1, 1.0f);
+                //Eigen::Vector3f x2(u2, v2, 1.0f);
+
+                //float epi_error = fabs(x2.transpose() * E * x1);
+
+                // 🔥 threshold (tune later)
+                //if(epi_error > 2000.0f)
+                //{
+                        //mCurrentFrame.mvFeatureWeight[i] *= 0.7f;
+                //}
+                // ===== CLAMP (VERY IMPORTANT) =====
+                //if(mCurrentFrame.mvFeatureWeight[i] < 0.1f)
+                     //mCurrentFrame.mvFeatureWeight[i] = 0.1f;
+            }
+            
+            // ===== 2. MASK CHECK =====
+            int x = (int)mCurrentFrame.mvKeys[i].pt.x;
+            int y = (int)mCurrentFrame.mvKeys[i].pt.y;
+
+            bool isDynamic = false;
+
+            if(x >= 0 && y >= 0 &&
+            x < mCurrentFrame.mDynamicMask.cols &&
+            y < mCurrentFrame.mDynamicMask.rows)
+            {
+                if(mCurrentFrame.mDynamicMask.at<uchar>(y,x) == 0)
+                    isDynamic = true;
+            }
+
+            // ===== 3. SOFT SUPPRESSION =====
+            if(isDynamic)
+            {
+                float w = mCurrentFrame.mvFeatureWeight[i];  // ✅ AFTER motion
+
+                if(mCurrentFrame.mvbOutlier[i] && w < 0.3f)
+                {
+                    dynamicCount[pMP]++;
+                    mCurrentFrame.mvFeatureWeight[i] *= 0.5f;
+
+                    if(mCurrentFrame.mvFeatureWeight[i] < 0.1f)
+                        mCurrentFrame.mvFeatureWeight[i] = 0.1f;
+
+                    refined++;
+                }
+                else
+                {
+                    if(dynamicCount[pMP] > 0)
+                        dynamicCount[pMP]--;
+
+                    if(w < 0.15f)
+                        mCurrentFrame.mvFeatureWeight[i] = 0.1f;
+                    else if(w < 0.5f)
+                        mCurrentFrame.mvFeatureWeight[i] = 0.2f;
+                    else
+                        mCurrentFrame.mvFeatureWeight[i] = 0.4f;
+                }
+            }
+        }
+
+        std::cout << "Geometric refined: " << refined << std::endl;
+
+        // ===== ADD THIS BLOCK RIGHT HERE =====
+        int total = mCurrentFrame.N;
+        int masked = 0;
+        int suppressed = 0;
+
+        for(int i=0; i<mCurrentFrame.N; i++)
+        {
+            int x = (int)mCurrentFrame.mvKeys[i].pt.x;
+            int y = (int)mCurrentFrame.mvKeys[i].pt.y;
+
+            // check mask
+            if(x >= 0 && y >= 0 &&
+            x < mCurrentFrame.mDynamicMask.cols &&
+            y < mCurrentFrame.mDynamicMask.rows)
+            {
+                if(mCurrentFrame.mDynamicMask.at<uchar>(y,x) == 0)
+                    masked++;
+            }
+
+            // ✅ REAL removal check
+            if(i < mCurrentFrame.mvbOutlier.size())
+            {
+                if(mCurrentFrame.mvbOutlier[i])
+                    suppressed++;
+            }
+        }
+
+        std::cout << "[ANALYSIS] Total: " << total
+          << " Masked: " << masked
+          << " Suppressed: " << suppressed << std::endl;
+
+        // ===== ADD THIS EXACTLY HERE =====
+        float mask_ratio = (float)masked / total;
+        float suppress_ratio = (float)suppressed / total;
+
+        std::cout << "[RATIO] Mask: " << mask_ratio
+                << " Suppress: " << suppress_ratio << std::endl;
+// =================================
+        // ====================================
+    }
+
+    // ===== ADD THIS RIGHT HERE =====
+    if(mbUseDynamic)
+    {
+        std::cout << ">>> SECOND OPTIMIZATION <<<" << std::endl;
+        Optimizer::PoseOptimization(&mCurrentFrame);
     }
 
     aux1 = 0, aux2 = 0;
@@ -4244,10 +4407,27 @@ void Tracking::ApplyDynamicMaskToFrame(Frame &frame)
                         << " Mask value: " << val << std::endl;
             }
 
-            if (val < 200)
+            if (val == 0)   // ONLY dynamic pixels
             {
                 inside_mask_points++;
-                frame.mvFeatureWeight[i] = 0.1f;
+               int val = frame.mDynamicMask.at<uchar>(y,x);
+
+                if(val == 0)  // dynamic
+                {
+                    // simple adaptive weighting
+                    if(i < 50)
+                        frame.mvFeatureWeight[i] = 0.1f;   // strong suppression (some points)
+                    else
+                        frame.mvFeatureWeight[i] = 0.2f;   // moderate suppression
+                }
+                else
+                {
+                    frame.mvFeatureWeight[i] = 1.0f;
+                }
+            }
+            else
+            {
+                frame.mvFeatureWeight[i] = 1.0f;
             }
         }
     }

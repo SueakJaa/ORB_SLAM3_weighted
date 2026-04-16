@@ -876,8 +876,16 @@ int Optimizer::PoseOptimization(Frame *pFrame)
 
                     e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
                     e->setMeasurement(obs);
+
                     const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
-                    e->setInformation(Eigen::Matrix2d::Identity()*invSigma2);
+
+                    // ===== ADD THIS =====
+                    float w = 1.0f;
+                    if(i < pFrame->mvFeatureWeight.size())
+                        w = pFrame->mvFeatureWeight[i];
+
+                    // 🔥 APPLY WEIGHT
+                    e->setInformation(Eigen::Matrix2d::Identity() * invSigma2 * w);
 
                     g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
                     e->setRobustKernel(rk);
@@ -906,7 +914,12 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                     e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
                     e->setMeasurement(obs);
                     const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
-                    Eigen::Matrix3d Info = Eigen::Matrix3d::Identity()*invSigma2;
+
+                    float w = 1.0f;
+                    if(i < pFrame->mvFeatureWeight.size())
+                        w = pFrame->mvFeatureWeight[i];
+
+                    Eigen::Matrix3d Info = Eigen::Matrix3d::Identity() * invSigma2 * w;
                     e->setInformation(Info);
 
                     g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
@@ -945,7 +958,12 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                     e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(0)));
                     e->setMeasurement(obs);
                     const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
-                    e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
+                   
+                    float w = 1.0f;
+                    if(i < pFrame->mvFeatureWeight.size())
+                        w = pFrame->mvFeatureWeight[i];
+
+                    e->setInformation(Eigen::Matrix2d::Identity() * invSigma2 * w);
 
                     g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
                     e->setRobustKernel(rk);
@@ -959,7 +977,8 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                     vpEdgesMono.push_back(e);
                     vnIndexEdgeMono.push_back(i);
                 }
-                else {
+                else 
+                {
                     kpUn = pFrame->mvKeysRight[i - pFrame->Nleft];
 
                     Eigen::Matrix<double, 2, 1> obs;
@@ -972,7 +991,12 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                     e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(0)));
                     e->setMeasurement(obs);
                     const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
-                    e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
+
+                    float w = 1.0f;
+                    if(i < pFrame->mvFeatureWeight.size())
+                        w = pFrame->mvFeatureWeight[i];
+
+                    e->setInformation(Eigen::Matrix2d::Identity() * invSigma2 * w);
 
                     g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
                     e->setRobustKernel(rk);
@@ -1024,6 +1048,24 @@ int Optimizer::PoseOptimization(Frame *pFrame)
             }
 
             const float chi2 = e->chi2();
+            if(it == 0)
+            {
+                float error_weight;
+
+                if(chi2 > 10.0)
+                    error_weight = 0.05f;
+                else if(chi2 > 5.0)
+                    error_weight = 0.1f;
+                else if(chi2 > 2.0)
+                    error_weight = 0.2f;
+                else
+                    error_weight = 1.0f;
+
+                if(idx < pFrame->mvFeatureWeight.size())
+                {
+                    pFrame->mvFeatureWeight[idx] *= error_weight;
+                }
+            }
 
             if(chi2>chi2Mono[it])
             {                
@@ -1054,6 +1096,25 @@ int Optimizer::PoseOptimization(Frame *pFrame)
 
             const float chi2 = e->chi2();
 
+            if(it == 0)
+            {
+                float error_weight;
+
+                if(chi2 > 10.0)
+                    error_weight = 0.05f;
+                else if(chi2 > 5.0)
+                    error_weight = 0.1f;
+                else if(chi2 > 2.0)
+                    error_weight = 0.2f;
+                else
+                    error_weight = 1.0f;
+
+                if(idx < pFrame->mvFeatureWeight.size())
+                {
+                    pFrame->mvFeatureWeight[idx] *= error_weight;
+                }
+            }
+
             if(chi2>chi2Mono[it])
             {
                 pFrame->mvbOutlier[idx]=true;
@@ -1082,6 +1143,25 @@ int Optimizer::PoseOptimization(Frame *pFrame)
             }
 
             const float chi2 = e->chi2();
+
+            if(it == 0)
+            {
+                float error_weight;
+
+                if(chi2 > 10.0)
+                    error_weight = 0.05f;
+                else if(chi2 > 5.0)
+                    error_weight = 0.1f;
+                else if(chi2 > 2.0)
+                    error_weight = 0.2f;
+                else
+                    error_weight = 1.0f;
+
+                if(idx < pFrame->mvFeatureWeight.size())
+                {
+                    pFrame->mvFeatureWeight[idx] *= error_weight;
+                }
+            }
 
             if(chi2>chi2Stereo[it])
             {
@@ -4734,7 +4814,19 @@ int Optimizer::PoseInertialOptimizationLastKeyFrame(Frame *pFrame, bool bRecInit
             const float chi2 = e->chi2();
             bool bClose = pFrame->mvpMapPoints[idx]->mTrackDepth<10.f;
 
-            if((chi2>chi2Mono[it]&&!bClose)||(bClose && chi2>chi2close)||!e->isDepthPositive())
+            bool isDynamic = false;
+
+            if(idx < pFrame->mvFeatureWeight.size())
+            {
+                if(pFrame->mvFeatureWeight[idx] < 0.5f)
+                    isDynamic = true;
+            }
+
+            // 🔥 RELAX threshold for dynamic points
+            if(
+                (!isDynamic && ((chi2>chi2Mono[it]&&!bClose)||(bClose && chi2>chi2close)||!e->isDepthPositive())) ||
+                ( isDynamic && ((chi2>chi2Mono[it]*2.0 && !bClose)||(bClose && chi2>chi2close*2.0)||!e->isDepthPositive()) )
+            )
             {
                 pFrame->mvbOutlier[idx]=true;
                 e->setLevel(1);
@@ -4746,6 +4838,7 @@ int Optimizer::PoseInertialOptimizationLastKeyFrame(Frame *pFrame, bool bRecInit
                 e->setLevel(0);
                 nInliersMono++;
             }
+          
 
             if (it==2)
                 e->setRobustKernel(0);
@@ -4765,10 +4858,19 @@ int Optimizer::PoseInertialOptimizationLastKeyFrame(Frame *pFrame, bool bRecInit
 
             const float chi2 = e->chi2();
 
-            if(chi2>chi2Stereo[it])
+            bool isDynamic = false;
+
+            if(idx < pFrame->mvFeatureWeight.size())
+            {
+                if(pFrame->mvFeatureWeight[idx] < 0.5f)
+                    isDynamic = true;
+            }
+
+            if( (!isDynamic && chi2>chi2Stereo[it]) ||
+                ( isDynamic && chi2>chi2Stereo[it]*2.0) )
             {
                 pFrame->mvbOutlier[idx]=true;
-                e->setLevel(1); // not included in next optimization
+                e->setLevel(1);
                 nBadStereo++;
             }
             else
