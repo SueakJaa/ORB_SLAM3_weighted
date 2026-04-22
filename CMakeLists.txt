@@ -82,6 +82,7 @@ src/GeometricTools.cc
 src/TwoViewReconstruction.cc
 src/Config.cc
 src/Settings.cc
+src/YOLOdetector.cc
 include/System.h
 include/Tracking.h
 include/LocalMapping.h

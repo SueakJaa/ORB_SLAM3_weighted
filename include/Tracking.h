@@ -29,6 +29,7 @@
 #include "LocalMapping.h"
 #include "LoopClosing.h"
 #include "Frame.h"
+#include "YOLOdetector.h"
 #include "ORBVocabulary.h"
 #include "KeyFrameDatabase.h"
 #include "ORBextractor.h"
@@ -68,6 +69,8 @@ public:
     bool ParseORBParamFile(cv::FileStorage &fSettings);
     bool ParseIMUParamFile(cv::FileStorage &fSettings);
     bool mbUseDynamic;
+    bool mbUseYOLO;
+    bool mbUseGeometry;
 
     // Preprocess the input and call Track(). Extract features and performs stereo matching.
     Sophus::SE3f GrabImageStereo(const cv::Mat &imRectLeft,const cv::Mat &imRectRight, const double &timestamp, string filename);
@@ -136,6 +139,7 @@ public:
     // Input sensor
     int mSensor;
 
+    YOLOdetector* mpYOLO;
     // Current Frame
     Frame mCurrentFrame;
     Frame mLastFrame;
@@ -195,7 +199,6 @@ public:
 #endif
 
 protected:
-
     // Main tracking function. It is independent of the input sensor.
     void Track();
 

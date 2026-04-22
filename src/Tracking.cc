@@ -48,7 +48,10 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     mpFrameDrawer(pFrameDrawer), mpMapDrawer(pMapDrawer), mpAtlas(pAtlas), mnLastRelocFrameId(0), time_recently_lost(5.0),
     mnInitialFrameId(0), mbCreatedMap(false), mnFirstFrameId(0), mpCamera2(nullptr), mpLastKeyFrame(static_cast<KeyFrame*>(NULL))
 {
-    mbUseDynamic = true;   
+    mpYOLO = new YOLOdetector();
+    mbUseDynamic = true;  
+    mbUseYOLO = true;
+    mbUseGeometry = true; 
     std::cout << "mbUseDynamic = " << mbUseDynamic << std::endl;
     // Load camera parameters from settings file
     if(settings)
@@ -1552,43 +1555,31 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
     else if(mSensor == System::IMU_RGBD)
         mCurrentFrame = Frame(mImGray,imDepth,timestamp,mpORBextractorLeft,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth,mpCamera,&mLastFrame,*mpImuCalib);
 
-    // ===== 🔥 ONLY MASK BLOCK (KEEP THIS ONE) =====
-
-    // ===== CHANGE ONLY THIS LINE =====
-    // ===== MASK LOADING (CORRECT ORDER) =====
-
-    // 1. create stringstream
-    std::stringstream ss;
-    ss << std::fixed << std::setprecision(6) << timestamp;
-
-    // 2. create timestamp string
-    std::string timestamp_str = ss.str();
-
-    // 3. choose dataset (CHANGE THIS PER RUN)
-    std::string base_path = "/home/shirt/masked_rgbd_dataset_freiburg3_walking_xyz";
-
-    // 4. build full path
-    std::string mask_path = base_path + "/rgb/" + timestamp_str + ".png";
-
-    // 5. load mask
-    mCurrentFrame.mDynamicMask = cv::imread(mask_path, 0);
-
-    // 6. check + resize
-    if(mCurrentFrame.mDynamicMask.empty())
+    // ===== YOLO ONLINE MASK =====
+    if(mbUseYOLO && mpYOLO)
     {
-        std::cout << "❌ Mask NOT found: " << mask_path << std::endl;
-    }
-    else
-    {
-        cv::resize(mCurrentFrame.mDynamicMask,
-                mCurrentFrame.mDynamicMask,
-                cv::Size(mImGray.cols, mImGray.rows));
+        std::cout << "[Tracking] Calling YOLO..." << std::endl;
 
-        std::cout << "✅ Mask loaded: " << mask_path << std::endl;
-    
-        std::cout << "Mask size: "
-                  << mCurrentFrame.mDynamicMask.cols << " x "
-                  << mCurrentFrame.mDynamicMask.rows << std::endl;
+        cv::Mat mask = mpYOLO->Infer(imRGB);
+
+        if(!mask.empty())
+        {
+            // resize to match frame
+            if(mask.size() != mImGray.size())
+                cv::resize(mask, mask, mImGray.size());
+
+            mCurrentFrame.mDynamicMask = mask.clone();
+            mCurrentFrame.mDynamicConfidence = mpYOLO->mConfidenceMap.clone();
+
+            std::cout << "✅ YOLO mask applied" << std::endl;
+            std::cout << "Mask size: "
+                    << mask.cols << " x "
+                    << mask.rows << std::endl;
+        }
+        else
+        {
+            std::cout << "❌ YOLO returned empty mask" << std::endl;
+        }
     }
 
     // ===== CONTINUE =====
@@ -4370,9 +4361,6 @@ void Tracking::Release()
 void Tracking::ApplyDynamicMaskToFrame(Frame &frame)
 {
     std::cout << ">>> APPLY DYNAMIC CALLED <<<" << std::endl;
-    std::cout << "Mask size: " 
-          << frame.mDynamicMask.cols << " x "
-          << frame.mDynamicMask.rows << std::endl;
 
     if(frame.mDynamicMask.empty())
     {
@@ -4389,41 +4377,52 @@ void Tracking::ApplyDynamicMaskToFrame(Frame &frame)
 
     for (int i = 0; i < N; i++)
     {
-        if(i == 0)
-            std::cout << "LOOP STARTED" << std::endl;
-
         int x = (int)frame.mvKeys[i].pt.x;
         int y = (int)frame.mvKeys[i].pt.y;
 
-        if (x >= 0 && y >= 0 &&
-            x < frame.mDynamicMask.cols &&
-            y < frame.mDynamicMask.rows)
-        {
-            int val = frame.mDynamicMask.at<uchar>(y,x);
+        if (x < 0 || y < 0 || 
+            x >= frame.mDynamicMask.cols || 
+            y >= frame.mDynamicMask.rows)
+            continue;
 
-            if(i < 20)
+        int val = frame.mDynamicMask.at<uchar>(y, x);
+
+        if(i < 20)
+        {
+            std::cout << "Feature: " << x << "," << y
+                      << " Mask value: " << val << std::endl;
+        }
+
+       if (val == 0)   // dynamic region (YOLO)
+        {
+            inside_mask_points++;
+
+            float confidence = 0.7f;
+
+            if(!frame.mDynamicConfidence.empty())
+                confidence = frame.mDynamicConfidence.at<float>(y, x);
+
+            float dynamic_weight = 1.0f - confidence;
+
+            // ===== SMART GEOMETRY FUSION =====
+            if(frame.mvbOutlier[i] && val == 0)
             {
-                std::cout << "Feature: " << x << "," << y
-                        << " Mask value: " << val << std::endl;
+                // already dynamic → only slightly stronger
+                dynamic_weight *= 0.7f;
             }
 
-            if (val == 0)   // ONLY dynamic pixels
-            {
-                inside_mask_points++;
-               int val = frame.mDynamicMask.at<uchar>(y,x);
+            // clamp (important)
+            dynamic_weight = std::max(0.2f, dynamic_weight);
 
-                if(val == 0)  // dynamic
-                {
-                    // simple adaptive weighting
-                    if(i < 50)
-                        frame.mvFeatureWeight[i] = 0.1f;   // strong suppression (some points)
-                    else
-                        frame.mvFeatureWeight[i] = 0.2f;   // moderate suppression
-                }
-                else
-                {
-                    frame.mvFeatureWeight[i] = 1.0f;
-                }
+            frame.mvFeatureWeight[i] *= dynamic_weight;
+        }
+        else
+        {
+            // NOT in YOLO mask → let geometry handle it
+            if(frame.mvbOutlier[i] && mbUseGeometry)
+
+            {
+                frame.mvFeatureWeight[i] *= 0.5f;  // moderate suppression
             }
             else
             {
@@ -4431,8 +4430,6 @@ void Tracking::ApplyDynamicMaskToFrame(Frame &frame)
             }
         }
     }
-
     std::cout << "Inside mask features: " << inside_mask_points << std::endl;
-
 }
 } //namespace ORB_SLAM

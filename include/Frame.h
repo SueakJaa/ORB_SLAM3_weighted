@@ -230,6 +230,7 @@ public:
     std::vector<float> mvFeatureWeight;
     //ADD
     cv::Mat mDynamicMask;
+    cv::Mat mDynamicConfidence;
 
     // Corresponding stereo coordinate and depth for each keypoint.
     std::vector<MapPoint*> mvpMapPoints;
