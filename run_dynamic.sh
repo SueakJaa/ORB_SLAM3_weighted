@@ -1,6 +1,6 @@
 #!/bin/bash
 
-DATASET=~/datasets/rgbd_dataset_freiburg3_sitting_static
+DATASET=~/datasets/rgbd_dataset_freiburg3_walking_xyz
 ASSOC=$DATASET/association_new.txt
 GT=$DATASET/groundtruth.txt
 
@@ -10,7 +10,7 @@ echo "====================================="
 
 rm -f dynamic_*.txt dynamic_*.eval
 
-for i in 1 2 3
+for i in 1 2 3 4 5
 do
     echo "Dynamic run $i"
 

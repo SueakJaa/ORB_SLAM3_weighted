@@ -49,9 +49,9 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     mnInitialFrameId(0), mbCreatedMap(false), mnFirstFrameId(0), mpCamera2(nullptr), mpLastKeyFrame(static_cast<KeyFrame*>(NULL))
 {
     mpYOLO = new YOLOdetector();
-    mbUseDynamic = true;  
-    mbUseYOLO = true;
-    mbUseGeometry = true; 
+    mbUseDynamic = false;  
+    mbUseYOLO = false;
+    mbUseGeometry = false; 
     std::cout << "mbUseDynamic = " << mbUseDynamic << std::endl;
     // Load camera parameters from settings file
     if(settings)
@@ -4393,7 +4393,8 @@ void Tracking::ApplyDynamicMaskToFrame(Frame &frame)
                       << " Mask value: " << val << std::endl;
         }
 
-       if (val == 0)   // dynamic region (YOLO)
+        // ================= DYNAMIC REGION =================
+        if (val == 0)
         {
             inside_mask_points++;
 
@@ -4402,27 +4403,41 @@ void Tracking::ApplyDynamicMaskToFrame(Frame &frame)
             if(!frame.mDynamicConfidence.empty())
                 confidence = frame.mDynamicConfidence.at<float>(y, x);
 
-            float dynamic_weight = 1.0f - confidence;
+            float dynamic_weight = std::max(0.3f, 1.0f - confidence);
 
-            // ===== SMART GEOMETRY FUSION =====
-            if(frame.mvbOutlier[i] && val == 0)
+            // ===== ALWAYS apply geometry (mild) =====
+           if(frame.mvbOutlier[i])
             {
-                // already dynamic → only slightly stronger
-                dynamic_weight *= 0.7f;
+                float geo_weight = 1.0f;
+
+                if(confidence > 0.7f)
+                    geo_weight = 0.95f;   // trust YOLO → weak geometry
+                else if(confidence > 0.4f)
+                    geo_weight = 0.85f;   // medium
+                else
+                    geo_weight = 0.7f;    // uncertain → strong geometry
+
+                dynamic_weight *= geo_weight;
             }
 
-            // clamp (important)
-            dynamic_weight = std::max(0.2f, dynamic_weight);
+            dynamic_weight = std::max(0.4f, dynamic_weight);
 
             frame.mvFeatureWeight[i] *= dynamic_weight;
         }
+
+        // ================= STATIC REGION =================
         else
         {
-            // NOT in YOLO mask → let geometry handle it
             if(frame.mvbOutlier[i] && mbUseGeometry)
-
             {
-                frame.mvFeatureWeight[i] *= 0.5f;  // moderate suppression
+                float confidence = 0.0f;
+
+                if(!frame.mDynamicConfidence.empty())
+                    confidence = frame.mDynamicConfidence.at<float>(y, x);
+
+                float geo_weight = (confidence < 0.5f) ? 0.85f : 0.95f;
+
+                frame.mvFeatureWeight[i] *= geo_weight;
             }
             else
             {
@@ -4430,6 +4445,18 @@ void Tracking::ApplyDynamicMaskToFrame(Frame &frame)
             }
         }
     }
+    // ===== TEMPORAL SMOOTHING =====
+    if(!mLastFrame.mvFeatureWeight.empty() &&
+    mLastFrame.mvFeatureWeight.size() == frame.mvFeatureWeight.size())
+    {
+        for(size_t i = 0; i < frame.mvFeatureWeight.size(); i++)
+        {
+            frame.mvFeatureWeight[i] =
+                0.7f * frame.mvFeatureWeight[i] +
+                0.3f * mLastFrame.mvFeatureWeight[i];
+        }
+    }
+    frame.mvPrevFeatureWeight = frame.mvFeatureWeight;
     std::cout << "Inside mask features: " << inside_mask_points << std::endl;
 }
 } //namespace ORB_SLAM

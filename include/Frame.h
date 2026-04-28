@@ -228,6 +228,7 @@ public:
     std::vector<cv::KeyPoint> mvKeys, mvKeysRight;
     std::vector<cv::KeyPoint> mvKeysUn;
     std::vector<float> mvFeatureWeight;
+    std::vector<float> mvPrevFeatureWeight;
     //ADD
     cv::Mat mDynamicMask;
     cv::Mat mDynamicConfidence;
