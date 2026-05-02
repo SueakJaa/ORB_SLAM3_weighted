@@ -227,6 +227,7 @@ public:
     // In t he RGB-D case, RGB images can be distorted.
     std::vector<cv::KeyPoint> mvKeys, mvKeysRight;
     std::vector<cv::KeyPoint> mvKeysUn;
+    std::vector<float> mvWeights;
     std::vector<float> mvFeatureWeight;
     std::vector<float> mvPrevFeatureWeight;
     //ADD

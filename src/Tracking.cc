@@ -49,9 +49,9 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     mnInitialFrameId(0), mbCreatedMap(false), mnFirstFrameId(0), mpCamera2(nullptr), mpLastKeyFrame(static_cast<KeyFrame*>(NULL))
 {
     mpYOLO = new YOLOdetector();
-    mbUseDynamic = false;  
-    mbUseYOLO = false;
-    mbUseGeometry = false; 
+    mbUseDynamic = true;  
+    mbUseYOLO = true;
+    mbUseGeometry = true; 
     std::cout << "mbUseDynamic = " << mbUseDynamic << std::endl;
     // Load camera parameters from settings file
     if(settings)
@@ -3106,7 +3106,7 @@ bool Tracking::TrackLocalMap()
 
                 if(motion > 15.0f)
                 {
-                    mCurrentFrame.mvFeatureWeight[i] *= 0.5f;
+                    //mCurrentFrame.mvFeatureWeight[i] *= 0.5f;
                 }
                 
             
@@ -3148,39 +3148,12 @@ bool Tracking::TrackLocalMap()
                     isDynamic = true;
             }
 
-            // ===== 3. SOFT SUPPRESSION =====
-            if(isDynamic)
-            {
-                float w = mCurrentFrame.mvFeatureWeight[i];  // ✅ AFTER motion
-
-                if(mCurrentFrame.mvbOutlier[i] && w < 0.3f)
-                {
-                    dynamicCount[pMP]++;
-                    mCurrentFrame.mvFeatureWeight[i] *= 0.5f;
-
-                    if(mCurrentFrame.mvFeatureWeight[i] < 0.1f)
-                        mCurrentFrame.mvFeatureWeight[i] = 0.1f;
-
-                    refined++;
-                }
-                else
-                {
-                    if(dynamicCount[pMP] > 0)
-                        dynamicCount[pMP]--;
-
-                    if(w < 0.15f)
-                        mCurrentFrame.mvFeatureWeight[i] = 0.1f;
-                    else if(w < 0.5f)
-                        mCurrentFrame.mvFeatureWeight[i] = 0.2f;
-                    else
-                        mCurrentFrame.mvFeatureWeight[i] = 0.4f;
-                }
-            }
+            
         }
 
         std::cout << "Geometric refined: " << refined << std::endl;
 
-        // ===== ADD THIS BLOCK RIGHT HERE =====
+        // ===== ADD =====
         int total = mCurrentFrame.N;
         int masked = 0;
         int suppressed = 0;
@@ -4360,21 +4333,40 @@ void Tracking::Release()
 #endif
 void Tracking::ApplyDynamicMaskToFrame(Frame &frame)
 {
-    std::cout << ">>> APPLY DYNAMIC CALLED <<<" << std::endl;
-
     if(frame.mDynamicMask.empty())
-    {
-        std::cout << "❌ MASK EMPTY → RETURN" << std::endl;
         return;
-    }
 
     int N = frame.mvKeys.size();
-    std::cout << "N features inside function: " << N << std::endl;
 
     frame.mvFeatureWeight = std::vector<float>(N, 1.0f);
 
-    int inside_mask_points = 0;
+    // ================= EPIPOLAR SETUP =================
+    cv::Mat F;
 
+    if(!mLastFrame.mvKeys.empty())
+    {
+        Sophus::SE3f Tcw_curr = frame.GetPose();
+        Sophus::SE3f Tcw_last = mLastFrame.GetPose();
+
+        Sophus::SE3f T_rel = Tcw_curr * Tcw_last.inverse();
+
+        Eigen::Matrix3f R = T_rel.rotationMatrix();
+        Eigen::Vector3f t = T_rel.translation();
+
+        Eigen::Matrix3f tx;
+        tx <<     0, -t(2),  t(1),
+            t(2),     0, -t(0),
+            -t(1),  t(0),     0;
+
+        Eigen::Matrix3f F_eigen = tx * R;
+
+        F = cv::Mat(3,3,CV_32F);
+        for(int r=0; r<3; r++)
+            for(int c=0; c<3; c++)
+                F.at<float>(r,c) = F_eigen(r,c);
+    }
+
+    // ================= MAIN LOOP =================
     for (int i = 0; i < N; i++)
     {
         int x = (int)frame.mvKeys[i].pt.x;
@@ -4385,78 +4377,55 @@ void Tracking::ApplyDynamicMaskToFrame(Frame &frame)
             y >= frame.mDynamicMask.rows)
             continue;
 
-        int val = frame.mDynamicMask.at<uchar>(y, x);
+        // ===== SEMANTIC =====
+        float confidence = 0.0f;
+        if(!frame.mDynamicConfidence.empty())
+            confidence = frame.mDynamicConfidence.at<float>(y, x);
 
-        if(i < 20)
+        float semantic_weight = std::max(0.3f, 1.0f - confidence);
+        frame.mvFeatureWeight[i] = semantic_weight;
+
+        // ===== EPIPOLAR =====
+        if(!F.empty() && i < (int)mLastFrame.mvKeys.size())
         {
-            std::cout << "Feature: " << x << "," << y
-                      << " Mask value: " << val << std::endl;
+            float x1 = mLastFrame.mvKeys[i].pt.x;
+            float y1 = mLastFrame.mvKeys[i].pt.y;
+
+            float x2 = frame.mvKeys[i].pt.x;
+            float y2 = frame.mvKeys[i].pt.y;
+
+            cv::Mat p1 = (cv::Mat_<float>(3,1) << x1, y1, 1);
+            cv::Mat l2 = F * p1;
+
+            float a = l2.at<float>(0);
+            float b = l2.at<float>(1);
+            float c = l2.at<float>(2);
+
+            float error = fabs(a*x2 + b*y2 + c) / sqrt(a*a + b*b);
+
+            float epi_w = std::max(0.5f, exp(-error / 80.0f));
+
+            frame.mvFeatureWeight[i] *= epi_w;
+
+            // ✅ debug ONLY here
+            if(i < 5)
+            {
+                std::cout << "[EPI] err=" << error
+                          << " w=" << epi_w << std::endl;
+            }
         }
 
-        // ================= DYNAMIC REGION =================
-        if (val == 0)
+        // ===== MOTION =====
+        if(!mLastFrame.mvKeys.empty() && i < (int)mLastFrame.mvKeys.size())
         {
-            inside_mask_points++;
+            float dx = frame.mvKeys[i].pt.x - mLastFrame.mvKeys[i].pt.x;
+            float dy = frame.mvKeys[i].pt.y - mLastFrame.mvKeys[i].pt.y;
 
-            float confidence = 0.7f;
+            float motion = sqrt(dx*dx + dy*dy);
 
-            if(!frame.mDynamicConfidence.empty())
-                confidence = frame.mDynamicConfidence.at<float>(y, x);
-
-            float dynamic_weight = std::max(0.3f, 1.0f - confidence);
-
-            // ===== ALWAYS apply geometry (mild) =====
-           if(frame.mvbOutlier[i])
-            {
-                float geo_weight = 1.0f;
-
-                if(confidence > 0.7f)
-                    geo_weight = 0.95f;   // trust YOLO → weak geometry
-                else if(confidence > 0.4f)
-                    geo_weight = 0.85f;   // medium
-                else
-                    geo_weight = 0.7f;    // uncertain → strong geometry
-
-                dynamic_weight *= geo_weight;
-            }
-
-            dynamic_weight = std::max(0.4f, dynamic_weight);
-
-            frame.mvFeatureWeight[i] *= dynamic_weight;
-        }
-
-        // ================= STATIC REGION =================
-        else
-        {
-            if(frame.mvbOutlier[i] && mbUseGeometry)
-            {
-                float confidence = 0.0f;
-
-                if(!frame.mDynamicConfidence.empty())
-                    confidence = frame.mDynamicConfidence.at<float>(y, x);
-
-                float geo_weight = (confidence < 0.5f) ? 0.85f : 0.95f;
-
-                frame.mvFeatureWeight[i] *= geo_weight;
-            }
-            else
-            {
-                frame.mvFeatureWeight[i] = 1.0f;
-            }
+            if(motion > 5.0f)
+                frame.mvFeatureWeight[i] *= 0.7f;
         }
     }
-    // ===== TEMPORAL SMOOTHING =====
-    if(!mLastFrame.mvFeatureWeight.empty() &&
-    mLastFrame.mvFeatureWeight.size() == frame.mvFeatureWeight.size())
-    {
-        for(size_t i = 0; i < frame.mvFeatureWeight.size(); i++)
-        {
-            frame.mvFeatureWeight[i] =
-                0.7f * frame.mvFeatureWeight[i] +
-                0.3f * mLastFrame.mvFeatureWeight[i];
-        }
-    }
-    frame.mvPrevFeatureWeight = frame.mvFeatureWeight;
-    std::cout << "Inside mask features: " << inside_mask_points << std::endl;
 }
 } //namespace ORB_SLAM

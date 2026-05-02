@@ -130,6 +130,7 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
 #endif
 
     N = mvKeys.size();
+    mvWeights = std::vector<float>(N, 1.0f);
     if(mvKeys.empty())
         return;
 
@@ -228,6 +229,7 @@ Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeSt
 
 
     N = mvKeys.size();
+    mvWeights = std::vector<float>(N, 1.0f);
 
     if(mvKeys.empty())
         return;
@@ -317,6 +319,7 @@ Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extra
 
 
     N = mvKeys.size();
+    mvWeights = std::vector<float>(N, 1.0f);
     if(mvKeys.empty())
         return;
 
