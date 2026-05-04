@@ -914,8 +914,8 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                     e->setMeasurement(obs);
                     const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
                     float semantic_w = 1.0f;
-                    if(i < pFrame->mvWeights.size())
-                        semantic_w = pFrame->mvWeights[i];
+                    if(i < pFrame->mvFeatureWeight.size())
+                        semantic_w = pFrame->mvFeatureWeight[i];
 
                     // geometric weight (not used yet)
                     float geo_w = 1.0f;
@@ -1042,7 +1042,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
         
         if(it == 0)
         {
-            const float sigma = 20.0f;
+            const float sigma = 30.0f;
 
             for(size_t i = 0; i < vpEdgesStereo.size(); i++)
             {
@@ -1055,7 +1055,8 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 //float geo_w = 1.0f;
                 
                 //Geometry soft & Geo+YOLO
-                float geo_w = exp(-error / sigma);
+                float geo_w = std::max(0.05f,
+                    exp(-(error * error) / (2.0f * sigma * sigma)));
 
                 int idx = vnIndexEdgeStereo[i];
 
@@ -1071,6 +1072,8 @@ int Optimizer::PoseOptimization(Frame *pFrame)
 
                 //YOLO soft & Geo+YOLO
                 float final_w = semantic_w * geo_w;
+
+                final_w = std::max(0.1f, final_w);
                 
                 
 
@@ -1107,36 +1110,21 @@ int Optimizer::PoseOptimization(Frame *pFrame)
             }
 
             const float chi2 = e->chi2();
-            if(it == 0)
+
+            if(chi2 > chi2Mono[it])
             {
-                float error_weight;
-
-                if(chi2 > 10.0)
-                    error_weight = 0.05f;
-                else if(chi2 > 5.0)
-                    error_weight = 0.1f;
-                else if(chi2 > 2.0)
-                    error_weight = 0.2f;
-                else
-                    error_weight = 1.0f;
-
-                //if(idx < pFrame->mvFeatureWeight.size())
-                {
-                   // pFrame->mvFeatureWeight[idx] *= error_weight;
-                }
-            }
-
-            if(chi2>chi2Mono[it])
-            {                
-                pFrame->mvbOutlier[idx]=true;
-                e->setLevel(1);
-                nBad++;
+                e->setLevel(1);   // downweight
             }
             else
             {
-                pFrame->mvbOutlier[idx]=false;
-                e->setLevel(0);
+                e->setLevel(0);   // normal
             }
+
+            // ❗ ALWAYS keep feature
+            pFrame->mvbOutlier[idx] = false;
+
+            // ❌ remove this
+            // nBad++;
 
             if(it==2)
                 e->setRobustKernel(0);
@@ -1155,36 +1143,18 @@ int Optimizer::PoseOptimization(Frame *pFrame)
 
             const float chi2 = e->chi2();
 
-            if(it == 0)
+            if(chi2 > chi2Mono[it])
             {
-                float error_weight;
-
-                if(chi2 > 10.0)
-                    error_weight = 0.05f;
-                else if(chi2 > 5.0)
-                    error_weight = 0.1f;
-                else if(chi2 > 2.0)
-                    error_weight = 0.2f;
-                else
-                    error_weight = 1.0f;
-
-                //if(idx < pFrame->mvFeatureWeight.size())
-                {
-                    //pFrame->mvFeatureWeight[idx] *= error_weight;
-                }
-            }
-
-            if(chi2>chi2Mono[it])
-            {
-                pFrame->mvbOutlier[idx]=true;
                 e->setLevel(1);
-                nBad++;
             }
             else
             {
-                pFrame->mvbOutlier[idx]=false;
                 e->setLevel(0);
             }
+
+            pFrame->mvbOutlier[idx] = false;
+
+            // ❌ remove nBad++
 
             if(it==2)
                 e->setRobustKernel(0);
@@ -1203,36 +1173,21 @@ int Optimizer::PoseOptimization(Frame *pFrame)
 
             const float chi2 = e->chi2();
 
-            if(it == 0)
+            // 🔥 SOFT OUTLIER HANDLING
+            if(chi2 > chi2Stereo[it])
             {
-                float error_weight;
-
-                if(chi2 > 10.0)
-                    error_weight = 0.05f;
-                else if(chi2 > 5.0)
-                    error_weight = 0.1f;
-                else if(chi2 > 2.0)
-                    error_weight = 0.2f;
-                else
-                    error_weight = 1.0f;
-
-                //if(idx < pFrame->mvFeatureWeight.size())
-                {
-                    //pFrame->mvFeatureWeight[idx] *= error_weight;
-                }
-            }
-
-            if(chi2>chi2Stereo[it])
-            {
-                pFrame->mvbOutlier[idx]=true;
-                e->setLevel(1);
-                nBad++;
+                e->setLevel(1);   // weaken
             }
             else
-            {                
+            {
                 e->setLevel(0);
-                pFrame->mvbOutlier[idx]=false;
             }
+
+            // ❗ DO NOT reject
+            pFrame->mvbOutlier[idx] = false;
+
+            // ❌ remove this line
+            // nBad++;
 
             if(it==2)
                 e->setRobustKernel(0);
@@ -4917,37 +4872,17 @@ int Optimizer::PoseInertialOptimizationLastKeyFrame(Frame *pFrame, bool bRecInit
 
             const float chi2 = e->chi2();
 
-            // 🔥 ONLY update in first iteration
-            if(it == 0)
-            {
-                const float sigma = 20.0f;
-                float geo_w = std::max(0.05f, exp(-chi2 / sigma));
-
-                if(idx < pFrame->mvFeatureWeight.size())
-                {
-                    pFrame->mvFeatureWeight[idx] *= geo_w;
-                }
-
-                // debug (optional)
-                // std::cout << "[REFINE] idx=" << idx
-                //           << " geo=" << geo_w
-                //           << " updated_w=" << pFrame->mvFeatureWeight[idx]
-                //           << std::endl;
-            }
-
             // ===== ORIGINAL OUTLIER LOGIC =====
-            if(chi2 > chi2Stereo[it])
+           if(chi2 > chi2Stereo[it])
             {
-                pFrame->mvbOutlier[idx] = true;
-                e->setLevel(1);
-                nBadStereo++;
+                e->setLevel(1);  // keep edge but weak
             }
             else
             {
-                pFrame->mvbOutlier[idx] = false;
                 e->setLevel(0);
-                nInliersStereo++;
             }
+
+            pFrame->mvbOutlier[idx] = false;
 
             if(it == 2)
                 e->setRobustKernel(0);

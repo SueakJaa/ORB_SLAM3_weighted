@@ -4403,7 +4403,7 @@ void Tracking::ApplyDynamicMaskToFrame(Frame &frame)
 
             float error = fabs(a*x2 + b*y2 + c) / sqrt(a*a + b*b);
 
-            float epi_w = std::max(0.5f, exp(-error / 80.0f));
+            float epi_w = std::max(0.7f, exp(-error / 80.0f));
 
             frame.mvFeatureWeight[i] *= epi_w;
 
