@@ -48,11 +48,42 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     mpFrameDrawer(pFrameDrawer), mpMapDrawer(pMapDrawer), mpAtlas(pAtlas), mnLastRelocFrameId(0), time_recently_lost(5.0),
     mnInitialFrameId(0), mbCreatedMap(false), mnFirstFrameId(0), mpCamera2(nullptr), mpLastKeyFrame(static_cast<KeyFrame*>(NULL))
 {
+    // ===== EXPERIMENT MODE =====
+    int EXP_MODE = 0;  // 🔥 CHANGE THIS ONLY
+
+    // 0 = Baseline
+    // 1 = YOLO only
+    // 2 = Geometry only
+    // 3 = YOLO + Geometry (YOUR METHOD)
+
     mpYOLO = new YOLOdetector();
-    mbUseDynamic = true;  
-    mbUseYOLO = true;
-    mbUseGeometry = true; 
-    std::cout << "mbUseDynamic = " << mbUseDynamic << std::endl;
+    mbUseDynamic = false;
+
+    if(EXP_MODE == 0)
+    {
+        mbUseYOLO = false;
+        mbUseGeometry = false;
+    }
+    else if(EXP_MODE == 1)
+    {
+        mbUseYOLO = true;
+        mbUseGeometry = false;
+    }
+    else if(EXP_MODE == 2)
+    {
+        mbUseYOLO = false;
+        mbUseGeometry = true;
+    }
+    else if(EXP_MODE == 3)
+    {
+        mbUseYOLO = true;
+        mbUseGeometry = true;
+    }
+
+    std::cout << "[MODE] Dynamic=" << mbUseDynamic
+          << " YOLO=" << mbUseYOLO
+          << " GEO=" << mbUseGeometry
+          << std::endl;
     // Load camera parameters from settings file
     if(settings)
     {
@@ -4333,12 +4364,21 @@ void Tracking::Release()
 #endif
 void Tracking::ApplyDynamicMaskToFrame(Frame &frame)
 {
-    if(frame.mDynamicMask.empty())
-        return;
-
     int N = frame.mvKeys.size();
-
     frame.mvFeatureWeight = std::vector<float>(N, 1.0f);
+
+    if(!mbUseDynamic || frame.mDynamicMask.empty())
+    {
+        std::cout << "[DEBUG] Baseline mode → force ALL weights = 1" << std::endl;
+
+        frame.mvFeatureWeight =
+            std::vector<float>(frame.mvKeys.size(), 1.0f);
+        
+        std::cout << "[CHECK] weight[0] = "
+          << frame.mvFeatureWeight[0] << std::endl;
+
+        return;
+    }
 
     // ================= EPIPOLAR SETUP =================
     cv::Mat F;

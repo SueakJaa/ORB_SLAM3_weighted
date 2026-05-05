@@ -41,6 +41,7 @@
 
 #include "OptimizableTypes.h"
 
+static bool USE_DYNAMIC_WEIGHT = true;
 
 namespace ORB_SLAM3
 {
@@ -813,6 +814,9 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
 
 int Optimizer::PoseOptimization(Frame *pFrame)
 {
+    //USE_DYNAMIC_WEIGHT = true;   // dynamic
+    USE_DYNAMIC_WEIGHT = false;  // baseline
+
     g2o::SparseOptimizer optimizer;
     g2o::BlockSolver_6_3::LinearSolverType * linearSolver;
 
@@ -880,8 +884,9 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                     const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
 
                     // ===== ADD THIS =====
-                    float w = 1.0f;
-                    if(i < pFrame->mvFeatureWeight.size())
+                   float w = 1.0f;
+
+                    if(USE_DYNAMIC_WEIGHT && i < pFrame->mvFeatureWeight.size())
                         w = pFrame->mvFeatureWeight[i];
 
                     e->setInformation(Eigen::Matrix2d::Identity() * invSigma2 * w);
@@ -913,17 +918,20 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                     e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
                     e->setMeasurement(obs);
                     const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
-                    float semantic_w = 1.0f;
-                    if(i < pFrame->mvFeatureWeight.size())
-                        semantic_w = pFrame->mvFeatureWeight[i];
+                    float w = 1.0f;
 
-                    // geometric weight (not used yet)
+                    if(USE_DYNAMIC_WEIGHT && i < (int)pFrame->mvFeatureWeight.size())
+                        w = pFrame->mvFeatureWeight[i];
+
+                    // geometry (optional)
                     float geo_w = 1.0f;
 
-                    float final_w = semantic_w * geo_w;
+                    // ✅ final weight (NO semantic_w here)
+                    float final_w = w * geo_w;
 
-                    // ONLY ONE Info declaration
-                    Eigen::Matrix3d Info = Eigen::Matrix3d::Identity() * invSigma2 * final_w;
+                    Eigen::Matrix3d Info =
+                        Eigen::Matrix3d::Identity() * invSigma2 * final_w;
+
                     e->setInformation(Info);
 
                     g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
@@ -964,7 +972,8 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                     const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
                    
                     float w = 1.0f;
-                    if(i < pFrame->mvFeatureWeight.size())
+
+                    if(USE_DYNAMIC_WEIGHT && i < pFrame->mvFeatureWeight.size())
                         w = pFrame->mvFeatureWeight[i];
 
                     Eigen::Matrix2d Info = Eigen::Matrix2d::Identity() * invSigma2 * w;
@@ -998,9 +1007,9 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                     const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
 
                     float w = 1.0f;
-                    if(i < pFrame->mvFeatureWeight.size())
-                        w = pFrame->mvFeatureWeight[i];
 
+                    if(USE_DYNAMIC_WEIGHT && i < pFrame->mvFeatureWeight.size())
+                        w = pFrame->mvFeatureWeight[i];
                     e->setInformation(Eigen::Matrix2d::Identity() * invSigma2 * w);
 
                     g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
@@ -1032,6 +1041,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     const int its[4]={10,10,10,10};    
 
     int nBad=0;
+    
     for(size_t it=0; it<4; it++)
     {
         Tcw = pFrame->GetPose();
@@ -1041,90 +1051,99 @@ int Optimizer::PoseOptimization(Frame *pFrame)
         optimizer.optimize(its[it]);
         
         if(it == 0)
+{
+    const float sigma = 30.0f;
+
+    // 🔥 CONTROL SWITCH (change here for experiments)
+    bool useYOLO = false;
+    bool useGeo  = false;
+
+    std::cout << "[OPT] useYOLO=" << useYOLO
+              << " useGeo=" << useGeo << std::endl;
+
+    // 🚨 IMPORTANT: skip EVERYTHING for baseline
+    if(!useYOLO && !useGeo)
+    {
+        // 👉 TRUE BASELINE → DO NOTHING
+    }
+    else
+    {
+        for(size_t i = 0; i < vpEdgesStereo.size(); i++)
         {
-            const float sigma = 30.0f;
+            auto* e = vpEdgesStereo[i];
+            if(!e) continue;
 
-            for(size_t i = 0; i < vpEdgesStereo.size(); i++)
+            int idx = vnIndexEdgeStereo[i];
+
+            float error = e->chi2();
+
+            // ===== Semantic =====
+            float semantic_w = 1.0f;
+            if(useYOLO && idx < pFrame->mvFeatureWeight.size())
             {
-                auto* e = vpEdgesStereo[i];
-                if(!e) continue;
-                
-                float error = e->chi2();
-               
-                //Baseline & Geometry only & YOLO soft
-                //float geo_w = 1.0f;
-                
-                //Geometry soft & Geo+YOLO
-                float geo_w = std::max(0.05f,
+                semantic_w = pFrame->mvFeatureWeight[idx];
+            }
+
+            // ===== Geometry =====
+            float geo_w = 1.0f;
+            if(useGeo)
+            {
+                geo_w = std::max(0.05f,
                     exp(-(error * error) / (2.0f * sigma * sigma)));
+            }
 
-                int idx = vnIndexEdgeStereo[i];
+            // ===== Final weight =====
+            float final_w = 1.0f;
 
-                float semantic_w = 1.0f;
-                if(idx < pFrame->mvFeatureWeight.size())
-                    semantic_w = pFrame->mvFeatureWeight[idx];
+            if(useYOLO && !useGeo)
+                final_w = semantic_w;
+            else if(!useYOLO && useGeo)
+                final_w = geo_w;
+            else
+                final_w = semantic_w * geo_w;
 
-                //Baseline & Geometry only
-                //float final_w = 1.0f;
+            final_w = std::max(0.1f, final_w);
 
-                //Geometry soft
-                //float final_w = geo_w;
+            float invSigma2 =
+                pFrame->mvInvLevelSigma2[pFrame->mvKeysUn[idx].octave];
 
-                //YOLO soft & Geo+YOLO
-                float final_w = semantic_w * geo_w;
+            Eigen::Matrix3d Info =
+                Eigen::Matrix3d::Identity() * invSigma2 * final_w;
 
-                final_w = std::max(0.1f, final_w);
-                
-                
+            e->setInformation(Info);
 
-                float invSigma2 =
-                    pFrame->mvInvLevelSigma2[pFrame->mvKeysUn[idx].octave];
-
-                Eigen::Matrix3d Info =
-                    Eigen::Matrix3d::Identity() * invSigma2 * final_w;
-
-                e->setInformation(Info);
-
-                // optional debug (limit it!!)
-                if(i < 5)
-                {
-                    std::cout << "[DEBUG] idx=" << idx
-                            << " sem=" << semantic_w
-                            << " geo=" << geo_w
-                            << " final=" << final_w
-                            << std::endl;
-                }
+            if(i < 5)
+            {
+                std::cout << "[DEBUG] idx=" << idx
+                          << " error=" << error
+                          << " sem=" << semantic_w
+                          << " geo=" << geo_w
+                          << " final=" << final_w
+                          << std::endl;
             }
         }
+    }
+}
         
         nBad=0;
         for(size_t i=0, iend=vpEdgesMono.size(); i<iend; i++)
         {
             ORB_SLAM3::EdgeSE3ProjectXYZOnlyPose* e = vpEdgesMono[i];
-
             const size_t idx = vnIndexEdgeMono[i];
 
             if(pFrame->mvbOutlier[idx])
-            {
                 e->computeError();
-            }
 
             const float chi2 = e->chi2();
 
+            // ✅ SOFT OUTLIER HANDLING ONLY
             if(chi2 > chi2Mono[it])
-            {
-                e->setLevel(1);   // downweight
-            }
+                e->setLevel(1);   // weaken
             else
-            {
                 e->setLevel(0);   // normal
-            }
 
-            // ❗ ALWAYS keep feature
+            // ❗ NEVER reject in soft weighting
             pFrame->mvbOutlier[idx] = false;
-
-            // ❌ remove this
-            // nBad++;
 
             if(it==2)
                 e->setRobustKernel(0);
@@ -1152,7 +1171,6 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 e->setLevel(0);
             }
 
-            pFrame->mvbOutlier[idx] = false;
 
             // ❌ remove nBad++
 
@@ -1184,7 +1202,6 @@ int Optimizer::PoseOptimization(Frame *pFrame)
             }
 
             // ❗ DO NOT reject
-            pFrame->mvbOutlier[idx] = false;
 
             // ❌ remove this line
             // nBad++;
@@ -4882,7 +4899,6 @@ int Optimizer::PoseInertialOptimizationLastKeyFrame(Frame *pFrame, bool bRecInit
                 e->setLevel(0);
             }
 
-            pFrame->mvbOutlier[idx] = false;
 
             if(it == 2)
                 e->setRobustKernel(0);
