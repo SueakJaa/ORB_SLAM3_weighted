@@ -1052,10 +1052,10 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 float error = e->chi2();
                
                 //Baseline & Geometry only & YOLO soft
-                float geo_w = 1.0f;
+                //float geo_w = 1.0f;
                 
                 //Geometry soft & Geo+YOLO
-                //float geo_w = exp(-error / sigma);
+                float geo_w = exp(-error / sigma);
 
                 int idx = vnIndexEdgeStereo[i];
 
@@ -1064,13 +1064,16 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                     semantic_w = pFrame->mvFeatureWeight[idx];
 
                 //Baseline & Geometry only
-                float final_w = 1.0f;
+                //float final_w = 1.0f;
 
                 //Geometry soft
                 //float final_w = geo_w;
 
-                //YOLO soft & Geo+YOLO
-                //float final_w = semantic_w * geo_w;
+                //YOLO
+                //float final_w = semantic_w;
+                
+                //Geo+YOLO
+                float final_w = semantic_w * geo_w;
                 
                 
 
