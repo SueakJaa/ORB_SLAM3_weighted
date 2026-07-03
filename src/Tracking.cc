@@ -3197,9 +3197,99 @@ bool Tracking::TrackLocalMap()
     // ===== ADD THIS RIGHT HERE =====
     if(mbUseDynamic)
     {
+        // ===== Adaptive Memory Fusion =====
+        for(int i = 0; i < mCurrentFrame.N; i++)
+        {
+            if(i >= mCurrentFrame.mvFeatureWeight.size())
+                continue;
+
+            if(!mCurrentFrame.mvpMapPoints[i])
+                continue;
+
+            if(mCurrentFrame.mvbOutlier[i])
+                continue;
+
+            MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
+
+            // Only trust memory after enough observations
+            if(pMP->Observations() < 5)
+                continue;
+
+            float historyProb = pMP->GetDynamicProbability();
+            float historyWeight = 1.0f - historyProb;
+
+            // Adaptive beta based on landmark maturity
+            float beta = std::min(0.3f,
+                                pMP->Observations() / 50.0f);
+
+            float oldWeight = mCurrentFrame.mvFeatureWeight[i];
+
+            mCurrentFrame.mvFeatureWeight[i] =
+                (1.0f - beta) * oldWeight +
+                beta * historyWeight;
+
+            if(i < 5)
+            {
+                std::cout
+                    << "[MEMORY] idx=" << i
+                    << " obs=" << pMP->Observations()
+                    << " beta=" << beta
+                    << " old=" << oldWeight
+                    << " new=" << mCurrentFrame.mvFeatureWeight[i]
+                    << std::endl;
+            }
+        }
+
         std::cout << ">>> SECOND OPTIMIZATION <<<" << std::endl;
         Optimizer::PoseOptimization(&mCurrentFrame);
     }
+
+    float minW = 1.0f;
+    float maxW = 0.0f;
+    float avgW = 0.0f;
+    int count = 0;
+
+    for(size_t i = 0; i < mCurrentFrame.mvFeatureWeight.size(); i++)
+    {
+        float w = mCurrentFrame.mvFeatureWeight[i];
+
+        minW = std::min(minW, w);
+        maxW = std::max(maxW, w);
+
+        avgW += w;
+        count++;
+    }
+
+    if(count > 0)
+        avgW /= count;
+
+    std::cout << "[WEIGHT] min="
+            << minW
+            << " avg="
+            << avgW
+            << " max="
+            << maxW
+            << std::endl;
+
+    float below03 = 0;
+    float below05 = 0;
+
+    for(size_t i = 0; i < mCurrentFrame.mvFeatureWeight.size(); i++)
+    {
+        float w = mCurrentFrame.mvFeatureWeight[i];
+
+        if(w < 0.3f)
+            below03++;
+
+        if(w < 0.5f)
+            below05++;
+    }
+
+    std::cout << "[WEIGHT DIST] "
+            << "<0.3: " << below03
+            << "  <0.5: " << below05
+            << "  Total: " << mCurrentFrame.mvFeatureWeight.size()
+            << std::endl;
 
     aux1 = 0, aux2 = 0;
     for(int i=0; i<mCurrentFrame.N; i++)
@@ -3220,6 +3310,24 @@ bool Tracking::TrackLocalMap()
             if(!mCurrentFrame.mvbOutlier[i])
             {
                 mCurrentFrame.mvpMapPoints[i]->IncreaseFound();
+                // ===== Dynamic Memory =====
+                if(i < mCurrentFrame.mvFeatureWeight.size())
+                {
+                    float observation =
+                        1.0f - mCurrentFrame.mvFeatureWeight[i];
+
+                    mCurrentFrame.mvpMapPoints[i]->UpdateDynamicProbability(observation);
+                    if(i < 5)
+                    {
+                        std::cout << "[MAP] "
+                                << "idx=" << i
+                                << " obs=" << observation
+                                << " prob="
+                                << mCurrentFrame.mvpMapPoints[i]->GetDynamicProbability()
+                                << std::endl;
+                    }
+                }
+                // ==========================
                 if(!mbOnlyTracking)
                 {
                     if(mCurrentFrame.mvpMapPoints[i]->Observations()>0)

@@ -147,8 +147,13 @@ public:
 
     void UpdateNormalAndDepth();
 
+    void UpdateDynamicProbability(float observation);
+    float GetDynamicProbability() const;
+
     float GetMinDistanceInvariance();
     float GetMaxDistanceInvariance();
+    // ===== Dynamic Confidence =====
+    float mfDynamicProbability = 0.0f;
     int PredictScale(const float &currentDist, KeyFrame*pKF);
     int PredictScale(const float &currentDist, Frame* pF);
 

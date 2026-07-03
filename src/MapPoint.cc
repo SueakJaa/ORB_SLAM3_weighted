@@ -423,6 +423,26 @@ bool MapPoint::IsInKeyFrame(KeyFrame *pKF)
     return (mObservations.count(pKF));
 }
 
+void MapPoint::UpdateDynamicProbability(float observation)
+{
+    // Exponential Moving Average
+    mfDynamicProbability =
+        0.7f * mfDynamicProbability +
+        0.3f * observation;
+
+    // Clamp
+    if(mfDynamicProbability < 0.0f)
+        mfDynamicProbability = 0.0f;
+
+    if(mfDynamicProbability > 1.0f)
+        mfDynamicProbability = 1.0f;
+}
+
+float MapPoint::GetDynamicProbability() const
+{
+    return mfDynamicProbability;
+}
+
 void MapPoint::UpdateNormalAndDepth()
 {
     map<KeyFrame*,tuple<int,int>> observations;
