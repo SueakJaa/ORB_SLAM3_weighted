@@ -1556,7 +1556,10 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
         mCurrentFrame = Frame(mImGray,imDepth,timestamp,mpORBextractorLeft,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth,mpCamera,&mLastFrame,*mpImuCalib);
 
     // ===== YOLO ONLINE MASK =====
-    if(mbUseYOLO && mpYOLO)
+    if(mbUseYOLO && mpYOLO &&
+   (EXPERIMENT == YOLO_ONLY ||
+    EXPERIMENT == YOLO_GEOMETRY ||
+    EXPERIMENT == FULL_METHOD))
     {
         std::cout << "[Tracking] Calling YOLO..." << std::endl;
 
@@ -1827,6 +1830,10 @@ void Tracking::ResetFrameIMU()
 
 void Tracking::Track()
 {
+
+    std::cout << "Experiment Mode = "
+          << EXPERIMENT
+          << std::endl;
 
     if (bStepByStep)
     {
@@ -2157,11 +2164,13 @@ std::cout << "N features: " << mCurrentFrame.mvKeys.size() << std::endl;
 
     if(mbUseDynamic)
     {
-    std::cout << ">>> CALLING DYNAMIC <<<" << std::endl;
-
-    ApplyDynamicMaskToFrame(mCurrentFrame);
+    if(EXPERIMENT == YOLO_ONLY ||
+        EXPERIMENT == YOLO_GEOMETRY ||
+        EXPERIMENT == FULL_METHOD)
+        {
+            ApplyDynamicMaskToFrame(mCurrentFrame);
+        }
     }
-
     // DEBUG (SAFE)
     if(!mCurrentFrame.mDynamicMask.empty())
     {
@@ -3179,11 +3188,13 @@ bool Tracking::TrackLocalMap()
                     suppressed++;
             }
         }
-
+        
+        if(EXPERIMENT != BASELINE)
+{
         std::cout << "[ANALYSIS] Total: " << total
           << " Masked: " << masked
           << " Suppressed: " << suppressed << std::endl;
-
+}
         // ===== ADD THIS EXACTLY HERE =====
         float mask_ratio = (float)masked / total;
         float suppress_ratio = (float)suppressed / total;
@@ -3197,51 +3208,59 @@ bool Tracking::TrackLocalMap()
     // ===== ADD THIS RIGHT HERE =====
     if(mbUseDynamic)
     {
-        // ===== Adaptive Memory Fusion =====
-        for(int i = 0; i < mCurrentFrame.N; i++)
+        if(EXPERIMENT == FULL_METHOD)
         {
-            if(i >= mCurrentFrame.mvFeatureWeight.size())
-                continue;
-
-            if(!mCurrentFrame.mvpMapPoints[i])
-                continue;
-
-            if(mCurrentFrame.mvbOutlier[i])
-                continue;
-
-            MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
-
-            // Only trust memory after enough observations
-            if(pMP->Observations() < 5)
-                continue;
-
-            float historyProb = pMP->GetDynamicProbability();
-            float historyWeight = 1.0f - historyProb;
-
-            // Adaptive beta based on landmark maturity
-            float beta = std::min(0.3f,
-                                pMP->Observations() / 50.0f);
-
-            float oldWeight = mCurrentFrame.mvFeatureWeight[i];
-
-            mCurrentFrame.mvFeatureWeight[i] =
-                (1.0f - beta) * oldWeight +
-                beta * historyWeight;
-
-            if(i < 5)
+            // ===== Adaptive Memory Fusion =====
+            for(int i = 0; i < mCurrentFrame.N; i++)
             {
-                std::cout
-                    << "[MEMORY] idx=" << i
-                    << " obs=" << pMP->Observations()
-                    << " beta=" << beta
-                    << " old=" << oldWeight
-                    << " new=" << mCurrentFrame.mvFeatureWeight[i]
-                    << std::endl;
+                if(i >= mCurrentFrame.mvFeatureWeight.size())
+                    continue;
+
+                if(!mCurrentFrame.mvpMapPoints[i])
+                    continue;
+
+                if(mCurrentFrame.mvbOutlier[i])
+                    continue;
+
+                MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
+
+                // Only trust memory after enough observations
+                if(pMP->Observations() < 5)
+                    continue;
+
+                float historyProb = pMP->GetDynamicProbability();
+                float historyWeight = 1.0f - historyProb;
+
+                // Adaptive beta based on landmark maturity
+                float beta = std::min(0.3f,
+                                    pMP->Observations() / 50.0f);
+
+                float oldWeight = mCurrentFrame.mvFeatureWeight[i];
+
+                mCurrentFrame.mvFeatureWeight[i] =
+                    (1.0f - beta) * oldWeight +
+                    beta * historyWeight;
+
+                if(i < 5)
+                {
+                    std::cout
+                        << "[MEMORY] idx=" << i
+                        << " obs=" << pMP->Observations()
+                        << " beta=" << beta
+                        << " old=" << oldWeight
+                        << " new=" << mCurrentFrame.mvFeatureWeight[i]
+                        << std::endl;
+                }
             }
         }
 
-        std::cout << ">>> SECOND OPTIMIZATION <<<" << std::endl;
-        Optimizer::PoseOptimization(&mCurrentFrame);
+        if(EXPERIMENT == YOLO_GEOMETRY ||
+            EXPERIMENT == FULL_METHOD)
+        {
+            std::cout << ">>> SECOND OPTIMIZATION <<<" << std::endl;
+            Optimizer::PoseOptimization(&mCurrentFrame);
+        }
+        
     }
 
     float minW = 1.0f;
@@ -3263,13 +3282,16 @@ bool Tracking::TrackLocalMap()
     if(count > 0)
         avgW /= count;
 
-    std::cout << "[WEIGHT] min="
-            << minW
-            << " avg="
-            << avgW
-            << " max="
-            << maxW
-            << std::endl;
+    if(EXPERIMENT != BASELINE)
+    {
+        std::cout << "[WEIGHT] min="
+                << minW
+                << " avg="
+                << avgW
+                << " max="
+                << maxW
+                << std::endl;
+    }        
 
     float below03 = 0;
     float below05 = 0;
@@ -3285,11 +3307,14 @@ bool Tracking::TrackLocalMap()
             below05++;
     }
 
+if(EXPERIMENT != BASELINE)
+{
     std::cout << "[WEIGHT DIST] "
             << "<0.3: " << below03
             << "  <0.5: " << below05
             << "  Total: " << mCurrentFrame.mvFeatureWeight.size()
             << std::endl;
+}
 
     aux1 = 0, aux2 = 0;
     for(int i=0; i<mCurrentFrame.N; i++)
@@ -3310,24 +3335,28 @@ bool Tracking::TrackLocalMap()
             if(!mCurrentFrame.mvbOutlier[i])
             {
                 mCurrentFrame.mvpMapPoints[i]->IncreaseFound();
-                // ===== Dynamic Memory =====
-                if(i < mCurrentFrame.mvFeatureWeight.size())
-                {
-                    float observation =
-                        1.0f - mCurrentFrame.mvFeatureWeight[i];
 
-                    mCurrentFrame.mvpMapPoints[i]->UpdateDynamicProbability(observation);
-                    if(i < 5)
+                if(EXPERIMENT == FULL_METHOD)
+                {
+                    // ===== Dynamic Memory =====
+                    if(i < mCurrentFrame.mvFeatureWeight.size())
                     {
-                        std::cout << "[MAP] "
-                                << "idx=" << i
-                                << " obs=" << observation
-                                << " prob="
-                                << mCurrentFrame.mvpMapPoints[i]->GetDynamicProbability()
-                                << std::endl;
+                        float observation =
+                            1.0f - mCurrentFrame.mvFeatureWeight[i];
+
+                        mCurrentFrame.mvpMapPoints[i]->UpdateDynamicProbability(observation);
+                        if(i < 5)
+                        {
+                            std::cout << "[MAP] "
+                                    << "idx=" << i
+                                    << " obs=" << observation
+                                    << " prob="
+                                    << mCurrentFrame.mvpMapPoints[i]->GetDynamicProbability()
+                                    << std::endl;
+                        }
                     }
+                    // ==========================
                 }
-                // ==========================
                 if(!mbOnlyTracking)
                 {
                     if(mCurrentFrame.mvpMapPoints[i]->Observations()>0)

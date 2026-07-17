@@ -10,7 +10,7 @@ echo "====================================="
 
 rm -f baseline_*.txt
 
-for i in 1 2 3 4 5
+for i in 1
 do
     echo "Baseline run $i"
 

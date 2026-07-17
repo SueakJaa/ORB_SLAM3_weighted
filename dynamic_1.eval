@@ -1,11 +1,1 @@
-APE w.r.t. translation part (m)
-(with SE(3) Umeyama alignment)
-
-       max	0.144808
-      mean	0.035063
-    median	0.024733
-       min	0.002647
-      rmse	0.043140
-       sse	1.537218
-       std	0.025132
-
+[ERROR] csv file dynamic_1.txt does not exist

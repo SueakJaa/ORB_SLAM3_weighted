@@ -1,11 +1,1 @@
-APE w.r.t. translation part (m)
-(with SE(3) Umeyama alignment)
-
-       max	0.301452
-      mean	0.033693
-    median	0.022478
-       min	0.002918
-      rmse	0.048358
-       sse	1.931611
-       std	0.034689
-
+[ERROR] csv file baseline_1.txt does not exist

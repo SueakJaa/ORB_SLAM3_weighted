@@ -57,7 +57,11 @@ Frame::Frame(const Frame &frame)
      mTimeStamp(frame.mTimeStamp), mK(frame.mK.clone()), mK_(Converter::toMatrix3f(frame.mK)), mDistCoef(frame.mDistCoef.clone()),
      mbf(frame.mbf), mb(frame.mb), mThDepth(frame.mThDepth), N(frame.N), mvKeys(frame.mvKeys),
      mvKeysRight(frame.mvKeysRight), mvKeysUn(frame.mvKeysUn), mvuRight(frame.mvuRight),
-     mvDepth(frame.mvDepth), mBowVec(frame.mBowVec), mFeatVec(frame.mFeatVec),
+     mvDepth(frame.mvDepth),
+     mvWeights(frame.mvWeights),
+     mvFeatureWeight(frame.mvFeatureWeight),
+     mBowVec(frame.mBowVec),
+     mFeatVec(frame.mFeatVec),
      mDescriptors(frame.mDescriptors.clone()), mDescriptorsRight(frame.mDescriptorsRight.clone()),
      mvpMapPoints(frame.mvpMapPoints), mvbOutlier(frame.mvbOutlier), mImuCalib(frame.mImuCalib), mnCloseMPs(frame.mnCloseMPs),
      mpImuPreintegrated(frame.mpImuPreintegrated), mpImuPreintegratedFrame(frame.mpImuPreintegratedFrame), mImuBias(frame.mImuBias),
@@ -131,6 +135,7 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
 
     N = mvKeys.size();
     mvWeights = std::vector<float>(N, 1.0f);
+    mvFeatureWeight = std::vector<float>(N, 1.0f);
     if(mvKeys.empty())
         return;
 
@@ -230,6 +235,7 @@ Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeSt
 
     N = mvKeys.size();
     mvWeights = std::vector<float>(N, 1.0f);
+    mvFeatureWeight = std::vector<float>(N, 1.0f);
 
     if(mvKeys.empty())
         return;
@@ -320,6 +326,7 @@ Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extra
 
     N = mvKeys.size();
     mvWeights = std::vector<float>(N, 1.0f);
+    mvFeatureWeight = std::vector<float>(N, 1.0f);
     if(mvKeys.empty())
         return;
 
@@ -1077,6 +1084,7 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
         return;
 
         // Feature weights
+        mvWeights = std::vector<float>(N, 1.0f);
         mvFeatureWeight = std::vector<float>(N, 1.0f);
 
         // Dynamic mask (initialize empty)

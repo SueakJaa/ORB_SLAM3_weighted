@@ -36,6 +36,7 @@
 #include "Thirdparty/g2o/g2o/solvers/linear_solver_dense.h"
 #include "G2oTypes.h"
 #include "Converter.h"
+#include "ExperimentConfig.h"
 
 #include<mutex>
 
@@ -229,11 +230,17 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<M
             if(pKF->mpCamera2){
                 int rightIndex = get<1>(mit->second);
 
-                if(rightIndex != -1 && rightIndex < pKF->mvKeysRight.size()){
+                if(rightIndex != -1)
+                {
                     rightIndex -= pKF->NLeft;
 
+                    if(rightIndex < 0 ||
+                    rightIndex >= pKF->mvKeysRight.size())
+                        continue;
+
                     Eigen::Matrix<double,2,1> obs;
-                    cv::KeyPoint kp = pKF->mvKeysRight[rightIndex];
+                    cv::KeyPoint kp =
+                        pKF->mvKeysRight[rightIndex];
                     obs << kp.pt.x, kp.pt.y;
 
                     ORB_SLAM3::EdgeSE3ProjectXYZToBody *e = new ORB_SLAM3::EdgeSE3ProjectXYZToBody();
@@ -681,11 +688,17 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
                 if(pKFi->mpCamera2){ // Monocular right observation
                     int rightIndex = get<1>(mit->second);
 
-                    if(rightIndex != -1 && rightIndex < pKFi->mvKeysRight.size()){
+                    if(rightIndex != -1)
+                    {
                         rightIndex -= pKFi->NLeft;
 
+                        if(rightIndex < 0 ||
+                        rightIndex >= pKFi->mvKeysRight.size())
+                            continue;
+
                         Eigen::Matrix<double,2,1> obs;
-                        kpUn = pKFi->mvKeysRight[rightIndex];
+                        kpUn =
+                            pKFi->mvKeysRight[rightIndex];
                         obs << kpUn.pt.x, kpUn.pt.y;
 
                         EdgeMono *e = new EdgeMono(1);
@@ -914,8 +927,9 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                     e->setMeasurement(obs);
                     const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
                     float semantic_w = 1.0f;
-                    if(i < pFrame->mvWeights.size())
-                        semantic_w = pFrame->mvWeights[i];
+
+                    if(i < pFrame->mvFeatureWeight.size())
+                        semantic_w = pFrame->mvFeatureWeight[i];
 
                     // geometric weight (not used yet)
                     float geo_w = 1.0f;
@@ -1051,17 +1065,29 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 
                 float error = e->chi2();
                
-                //Baseline & Geometry only & YOLO soft
-                //float geo_w = 1.0f;
-                
-                //Geometry soft & Geo+YOLO
-                float geo_w = exp(-error / sigma);
+                float geo_w = 1.0f;
+
+                if(EXPERIMENT == GEOMETRY_ONLY ||
+                    EXPERIMENT == YOLO_GEOMETRY ||
+                    EXPERIMENT == FULL_METHOD)
+                {
+                    geo_w = exp(-error/sigma);
+                }
 
                 int idx = vnIndexEdgeStereo[i];
 
+                if(idx < 0 || idx >= pFrame->N)
+                    continue;
+
                 float semantic_w = 1.0f;
-                if(idx < pFrame->mvFeatureWeight.size())
-                    semantic_w = pFrame->mvFeatureWeight[idx];
+
+                if(EXPERIMENT == YOLO_ONLY ||
+                    EXPERIMENT == YOLO_GEOMETRY ||
+                    EXPERIMENT == FULL_METHOD)
+                {
+                    if(idx < pFrame->mvFeatureWeight.size())
+                        semantic_w = pFrame->mvFeatureWeight[idx];
+                }
 
                 //Baseline & Geometry only
                 //float final_w = 1.0f;
@@ -1073,9 +1099,48 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 //float final_w = semantic_w;
                 
                 //Geo+YOLO
-                float final_w = semantic_w * geo_w;
+                float final_w = 1.0f;
+
+                switch(EXPERIMENT)
+                {
+                case BASELINE:
+                    final_w = 1.0f;
+                    break;
+
+                case GEOMETRY_ONLY:
+                    final_w = geo_w;
+                    break;
+
+                case YOLO_ONLY:
+                    final_w = semantic_w;
+                    break;
+
+                case YOLO_GEOMETRY:
+                case FULL_METHOD:
+                    final_w = semantic_w * geo_w;
+                    break;
+                }
                 
-                
+                if(idx < 0 || idx >= pFrame->mvKeysUn.size())
+                {
+                    std::cout << "BAD KEY IDX = " << idx
+                            << " mvKeysUn = " << pFrame->mvKeysUn.size()
+                            << std::endl;
+                    exit(0);
+                }
+
+                std::cout << "Frame N = " << pFrame->N
+                        << "  mvKeysUn = " << pFrame->mvKeysUn.size()
+                        << "  mvFeatureWeight = " << pFrame->mvFeatureWeight.size()
+                        << "  mvWeights = " << pFrame->mvWeights.size()
+                        << std::endl;
+
+                if(idx >= pFrame->mvFeatureWeight.size())
+                {
+                    std::cout << "BAD FEATURE WEIGHT IDX = "
+                            << idx << std::endl;
+                    exit(0);
+                }
 
                 float invSigma2 =
                     pFrame->mvInvLevelSigma2[pFrame->mvKeysUn[idx].octave];
@@ -1508,11 +1573,28 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
                 if(pKFi->mpCamera2){
                     int rightIndex = get<1>(mit->second);
 
-                    if(rightIndex != -1 ){
+                    if(rightIndex != -1)
+                    {
                         rightIndex -= pKFi->NLeft;
 
+                        if(rightIndex < 0 ||
+                        rightIndex >= pKFi->mvKeysRight.size())
+                        {
+                            std::cout
+                                << "BAD RIGHT INDEX "
+                                << rightIndex
+                                << " size "
+                                << pKFi->mvKeysRight.size()
+                                << std::endl;
+
+                            continue;
+                        }
+
                         Eigen::Matrix<double,2,1> obs;
-                        cv::KeyPoint kp = pKFi->mvKeysRight[rightIndex];
+
+                        cv::KeyPoint kp =
+                            pKFi->mvKeysRight[rightIndex];
+
                         obs << kp.pt.x, kp.pt.y;
 
                         ORB_SLAM3::EdgeSE3ProjectXYZToBody *e = new ORB_SLAM3::EdgeSE3ProjectXYZToBody();
@@ -2939,12 +3021,30 @@ void Optimizer::LocalInertialBA(KeyFrame *pKF, bool *pbStopFlag, Map *pMap, int&
                 if(pKFi->mpCamera2){
                     int rightIndex = get<1>(mit->second);
 
-                    if(rightIndex != -1 ){
+                    if(rightIndex != -1)
+                    {
                         rightIndex -= pKFi->NLeft;
+
+                        if(rightIndex < 0 ||
+                        rightIndex >= pKFi->mvKeysRight.size())
+                        {
+                            std::cout
+                                << "BAD RIGHT INDEX "
+                                << rightIndex
+                                << " size "
+                                << pKFi->mvKeysRight.size()
+                                << std::endl;
+
+                            continue;
+                        }
+
                         mVisEdges[pKFi->mnId]++;
 
                         Eigen::Matrix<double,2,1> obs;
-                        cv::KeyPoint kp = pKFi->mvKeysRight[rightIndex];
+
+                        cv::KeyPoint kp =
+                            pKFi->mvKeysRight[rightIndex];
+
                         obs << kp.pt.x, kp.pt.y;
 
                         EdgeMono* e = new EdgeMono(1);
@@ -4920,7 +5020,7 @@ int Optimizer::PoseInertialOptimizationLastKeyFrame(Frame *pFrame, bool bRecInit
 
             const float chi2 = e->chi2();
 
-            // 🔥 ONLY update in first iteration
+            /*
             if(it == 0)
             {
                 const float sigma = 20.0f;
@@ -4937,7 +5037,7 @@ int Optimizer::PoseInertialOptimizationLastKeyFrame(Frame *pFrame, bool bRecInit
                 //           << " updated_w=" << pFrame->mvFeatureWeight[idx]
                 //           << std::endl;
             }
-
+            */
             // ===== ORIGINAL OUTLIER LOGIC =====
             if(chi2 > chi2Stereo[it])
             {

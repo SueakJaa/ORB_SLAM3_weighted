@@ -37,6 +37,7 @@
 #include "System.h"
 #include "ImuTypes.h"
 #include "Settings.h"
+#include "ExperimentConfig.h"
 
 #include "GeometricCamera.h"
 

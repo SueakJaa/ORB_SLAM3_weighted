@@ -136,11 +136,36 @@ namespace ORB_SLAM3 {
     }
 
 
-    void EdgeSE3ProjectXYZ::linearizeOplus() {
-        g2o::VertexSE3Expmap * vj = static_cast<g2o::VertexSE3Expmap *>(_vertices[1]);
+    void EdgeSE3ProjectXYZ::linearizeOplus()
+    {
+        if(!pCamera)
+        {
+            std::cout << "NULL CAMERA" << std::endl;
+            exit(0);
+        }
+
+        if(!_vertices[0])
+        {
+            std::cout << "NULL V0" << std::endl;
+            exit(0);
+        }
+
+        if(!_vertices[1])
+        {
+            std::cout << "NULL V1" << std::endl;
+            exit(0);
+        }
+
+        g2o::VertexSE3Expmap *vj =
+            static_cast<g2o::VertexSE3Expmap*>(_vertices[1]);
+
         g2o::SE3Quat T(vj->estimate());
-        g2o::VertexSBAPointXYZ* vi = static_cast<g2o::VertexSBAPointXYZ*>(_vertices[0]);
+
+        g2o::VertexSBAPointXYZ *vi =
+            static_cast<g2o::VertexSBAPointXYZ*>(_vertices[0]);
+
         Eigen::Vector3d xyz = vi->estimate();
+
         Eigen::Vector3d xyz_trans = T.map(xyz);
 
         double x = xyz_trans[0];
