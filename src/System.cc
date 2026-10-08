@@ -520,6 +520,8 @@ void System::Shutdown()
     }
 
     cout << "Shutdown" << endl;
+    if(mpTracker)
+        mpTracker->PrintDynamicStats();
 
     mpLocalMapper->RequestFinish();
     mpLoopCloser->RequestFinish();

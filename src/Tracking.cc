@@ -18,6 +18,7 @@
 
 
 #include "Tracking.h"
+#include "DynamicConfig.h"
 
 #include "ORBmatcher.h"
 #include "FrameDrawer.h"
@@ -48,11 +49,14 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     mpFrameDrawer(pFrameDrawer), mpMapDrawer(pMapDrawer), mpAtlas(pAtlas), mnLastRelocFrameId(0), time_recently_lost(5.0),
     mnInitialFrameId(0), mbCreatedMap(false), mnFirstFrameId(0), mpCamera2(nullptr), mpLastKeyFrame(static_cast<KeyFrame*>(NULL))
 {
-    mpYOLO = new YOLOdetector();
-    mbUseDynamic = true;  
-    mbUseYOLO = true;
-    mbUseGeometry = true; 
-    std::cout << "mbUseDynamic = " << mbUseDynamic << std::endl;
+    // ===== Experiment configuration (see include/DynamicConfig.h) =====
+    const DynamicConfig& dcfg = DynamicConfig::Get();
+    mbUseYOLO     = dcfg.UseYOLO();      // yolo, proposed
+    mbUseGeometry = dcfg.UseGeometry();  // geo, proposed (applied in Optimizer::PoseOptimization)
+    mbUseDynamic  = dcfg.UseYOLO();      // semantic weights only exist when YOLO runs
+    mpYOLO = mbUseYOLO ? new YOLOdetector() : nullptr;
+    mdYoloTimeTotal = 0.0;
+    mnYoloFrames = 0;
     // Load camera parameters from settings file
     if(settings)
     {
@@ -1558,9 +1562,14 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
     // ===== YOLO ONLINE MASK =====
     if(mbUseYOLO && mpYOLO)
     {
-        std::cout << "[Tracking] Calling YOLO..." << std::endl;
+        const bool verbose = DynamicConfig::Get().verbose;
+        if(verbose) std::cout << "[Tracking] Calling YOLO..." << std::endl;
 
+        std::chrono::steady_clock::time_point tYolo0 = std::chrono::steady_clock::now();
         cv::Mat mask = mpYOLO->Infer(imRGB);
+        std::chrono::steady_clock::time_point tYolo1 = std::chrono::steady_clock::now();
+        mdYoloTimeTotal += std::chrono::duration_cast<std::chrono::duration<double> >(tYolo1 - tYolo0).count();
+        mnYoloFrames++;
 
         if(!mask.empty())
         {
@@ -1571,14 +1580,13 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
             mCurrentFrame.mDynamicMask = mask.clone();
             mCurrentFrame.mDynamicConfidence = mpYOLO->mConfidenceMap.clone();
 
-            std::cout << "✅ YOLO mask applied" << std::endl;
-            std::cout << "Mask size: "
-                    << mask.cols << " x "
-                    << mask.rows << std::endl;
+            if(verbose)
+                std::cout << "YOLO mask applied, size: "
+                          << mask.cols << " x " << mask.rows << std::endl;
         }
         else
         {
-            std::cout << "❌ YOLO returned empty mask" << std::endl;
+            std::cerr << "[Tracking] YOLO returned empty mask" << std::endl;
         }
     }
 
@@ -2153,17 +2161,11 @@ void Tracking::Track()
 #ifdef REGISTER_TIMES
         std::chrono::steady_clock::time_point time_StartLMTrack = std::chrono::steady_clock::now();
 #endif
-std::cout << "N features: " << mCurrentFrame.mvKeys.size() << std::endl;
-
     if(mbUseDynamic)
-    {
-    std::cout << ">>> CALLING DYNAMIC <<<" << std::endl;
+        ApplyDynamicMaskToFrame(mCurrentFrame);   // semantic weights only
 
-    ApplyDynamicMaskToFrame(mCurrentFrame);
-    }
-
-    // DEBUG (SAFE)
-    if(!mCurrentFrame.mDynamicMask.empty())
+    // DEBUG
+    if(DynamicConfig::Get().verbose && !mCurrentFrame.mDynamicMask.empty())
     {
         std::cout << "Mask pixel sample: "
                 << (int)mCurrentFrame.mDynamicMask.at<uchar>(240,320)
@@ -3064,8 +3066,8 @@ bool Tracking::TrackLocalMap()
 
     // Essential matrix
     //Eigen::Matrix3f E = t_x * R;
-    // ===== ADD =============================
-    if(mbUseDynamic)
+    // ===== Debug analysis only (does not change weights) =====
+    if(mbUseDynamic && DynamicConfig::Get().verbose)
     {
         int refined = 0;
 
@@ -3195,9 +3197,9 @@ bool Tracking::TrackLocalMap()
     }
 
     // ===== ADD THIS RIGHT HERE =====
-    if(mbUseDynamic)
+    // Extra pose optimization from v3. Not described in the paper -> off by default.
+    if(DynamicConfig::Get().UseWeighting() && DynamicConfig::Get().secondOpt)
     {
-        std::cout << ">>> SECOND OPTIMIZATION <<<" << std::endl;
         Optimizer::PoseOptimization(&mCurrentFrame);
     }
 
@@ -4333,99 +4335,41 @@ void Tracking::Release()
 #endif
 void Tracking::ApplyDynamicMaskToFrame(Frame &frame)
 {
-    if(frame.mDynamicMask.empty())
-        return;
-
-    int N = frame.mvKeys.size();
-
+    // Semantic weight only:  w_sem = max(min_sem, 1 - c)   (paper Eq. 4)
+    // The v3 epipolar / motion terms were removed: they compared keypoint i in the
+    // current frame with keypoint i in the last frame (not the same physical point)
+    // and used [t]x R on pixel coordinates without K.
+    const int N = frame.mvKeys.size();
     frame.mvFeatureWeight = std::vector<float>(N, 1.0f);
 
-    // ================= EPIPOLAR SETUP =================
-    cv::Mat F;
+    if(frame.mDynamicConfidence.empty())
+        return;
 
-    if(!mLastFrame.mvKeys.empty())
-    {
-        Sophus::SE3f Tcw_curr = frame.GetPose();
-        Sophus::SE3f Tcw_last = mLastFrame.GetPose();
+    const float minSem = DynamicConfig::Get().minSem;
 
-        Sophus::SE3f T_rel = Tcw_curr * Tcw_last.inverse();
-
-        Eigen::Matrix3f R = T_rel.rotationMatrix();
-        Eigen::Vector3f t = T_rel.translation();
-
-        Eigen::Matrix3f tx;
-        tx <<     0, -t(2),  t(1),
-            t(2),     0, -t(0),
-            -t(1),  t(0),     0;
-
-        Eigen::Matrix3f F_eigen = tx * R;
-
-        F = cv::Mat(3,3,CV_32F);
-        for(int r=0; r<3; r++)
-            for(int c=0; c<3; c++)
-                F.at<float>(r,c) = F_eigen(r,c);
-    }
-
-    // ================= MAIN LOOP =================
     for (int i = 0; i < N; i++)
     {
-        int x = (int)frame.mvKeys[i].pt.x;
-        int y = (int)frame.mvKeys[i].pt.y;
+        const int x = (int)frame.mvKeys[i].pt.x;
+        const int y = (int)frame.mvKeys[i].pt.y;
 
-        if (x < 0 || y < 0 || 
-            x >= frame.mDynamicMask.cols || 
-            y >= frame.mDynamicMask.rows)
+        if (x < 0 || y < 0 ||
+            x >= frame.mDynamicConfidence.cols ||
+            y >= frame.mDynamicConfidence.rows)
             continue;
 
-        // ===== SEMANTIC =====
-        float confidence = 0.0f;
-        if(!frame.mDynamicConfidence.empty())
-            confidence = frame.mDynamicConfidence.at<float>(y, x);
-
-        float semantic_weight = std::max(0.3f, 1.0f - confidence);
-        frame.mvFeatureWeight[i] = semantic_weight;
-
-        // ===== EPIPOLAR =====
-        if(!F.empty() && i < (int)mLastFrame.mvKeys.size())
-        {
-            float x1 = mLastFrame.mvKeys[i].pt.x;
-            float y1 = mLastFrame.mvKeys[i].pt.y;
-
-            float x2 = frame.mvKeys[i].pt.x;
-            float y2 = frame.mvKeys[i].pt.y;
-
-            cv::Mat p1 = (cv::Mat_<float>(3,1) << x1, y1, 1);
-            cv::Mat l2 = F * p1;
-
-            float a = l2.at<float>(0);
-            float b = l2.at<float>(1);
-            float c = l2.at<float>(2);
-
-            float error = fabs(a*x2 + b*y2 + c) / sqrt(a*a + b*b);
-
-            float epi_w = std::max(0.5f, exp(-error / 80.0f));
-
-            frame.mvFeatureWeight[i] *= epi_w;
-
-            // ✅ debug ONLY here
-            if(i < 5)
-            {
-                std::cout << "[EPI] err=" << error
-                          << " w=" << epi_w << std::endl;
-            }
-        }
-
-        // ===== MOTION =====
-        if(!mLastFrame.mvKeys.empty() && i < (int)mLastFrame.mvKeys.size())
-        {
-            float dx = frame.mvKeys[i].pt.x - mLastFrame.mvKeys[i].pt.x;
-            float dy = frame.mvKeys[i].pt.y - mLastFrame.mvKeys[i].pt.y;
-
-            float motion = sqrt(dx*dx + dy*dy);
-
-            if(motion > 5.0f)
-                frame.mvFeatureWeight[i] *= 0.7f;
-        }
+        const float confidence = frame.mDynamicConfidence.at<float>(y, x);
+        if(confidence > 0.0f)
+            frame.mvFeatureWeight[i] = std::max(minSem, 1.0f - confidence);
     }
+}
+
+void Tracking::PrintDynamicStats()
+{
+    const DynamicConfig& c = DynamicConfig::Get();
+    std::cout << "[DynamicStats] mode=" << c.ModeName();
+    if(mnYoloFrames > 0)
+        std::cout << " yolo_frames=" << mnYoloFrames
+                  << " mean_yolo_time=" << mdYoloTimeTotal / mnYoloFrames << " s";
+    std::cout << std::endl;
 }
 } //namespace ORB_SLAM

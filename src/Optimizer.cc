@@ -18,6 +18,7 @@
 
 
 #include "Optimizer.h"
+#include "DynamicConfig.h"
 
 
 #include <complex>
@@ -824,6 +825,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     optimizer.setAlgorithm(solver);
 
     int nInitialCorrespondences=0;
+    const DynamicConfig& dcfg = DynamicConfig::Get();
 
     // Set Frame vertex
     g2o::VertexSE3Expmap * vSE3 = new g2o::VertexSE3Expmap();
@@ -879,12 +881,8 @@ int Optimizer::PoseOptimization(Frame *pFrame)
 
                     const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
 
-                    // ===== ADD THIS =====
-                    float w = 1.0f;
-                    if(i < pFrame->mvFeatureWeight.size())
-                        w = pFrame->mvFeatureWeight[i];
-
-                    e->setInformation(Eigen::Matrix2d::Identity() * invSigma2 * w);
+                    // Unweighted, as in original ORB-SLAM3 (paper weights stereo edges only)
+                    e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
 
                     g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
                     e->setRobustKernel(rk);
@@ -913,17 +911,9 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                     e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
                     e->setMeasurement(obs);
                     const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
-                    float semantic_w = 1.0f;
-                    if(i < pFrame->mvWeights.size())
-                        semantic_w = pFrame->mvWeights[i];
-
-                    // geometric weight (not used yet)
-                    float geo_w = 1.0f;
-
-                    float final_w = semantic_w * geo_w;
-
-                    // ONLY ONE Info declaration
-                    Eigen::Matrix3d Info = Eigen::Matrix3d::Identity() * invSigma2 * final_w;
+                    // Round 0 is unweighted, so chi2 used for w_geo is the plain reprojection cost.
+                    // Weights are applied after round 0 (see below).
+                    Eigen::Matrix3d Info = Eigen::Matrix3d::Identity() * invSigma2;
                     e->setInformation(Info);
 
                     g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
@@ -963,12 +953,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                     e->setMeasurement(obs);
                     const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
                    
-                    float w = 1.0f;
-                    if(i < pFrame->mvFeatureWeight.size())
-                        w = pFrame->mvFeatureWeight[i];
-
-                    Eigen::Matrix2d Info = Eigen::Matrix2d::Identity() * invSigma2 * w;
-                    e->setInformation(Info);
+                    e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
 
                     g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
                     e->setRobustKernel(rk);
@@ -997,11 +982,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                     e->setMeasurement(obs);
                     const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
 
-                    float w = 1.0f;
-                    if(i < pFrame->mvFeatureWeight.size())
-                        w = pFrame->mvFeatureWeight[i];
-
-                    e->setInformation(Eigen::Matrix2d::Identity() * invSigma2 * w);
+                    e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
 
                     g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
                     e->setRobustKernel(rk);
@@ -1040,63 +1021,41 @@ int Optimizer::PoseOptimization(Frame *pFrame)
         optimizer.initializeOptimization(0);
         optimizer.optimize(its[it]);
         
-        if(it == 0)
+        // ===== Semantic-geometric weighting (paper Sec. III-D to III-F) =====
+        // Applied once, after round 0, to stereo edges:
+        //   w_geo = exp(-chi2 / sigma),  w_sem = max(min_sem, 1 - c),  Omega = w * s^-2 * I
+        if(it == 0 && dcfg.UseWeighting())
         {
-            const float sigma = 20.0f;
-
             for(size_t i = 0; i < vpEdgesStereo.size(); i++)
             {
-                auto* e = vpEdgesStereo[i];
+                g2o::EdgeStereoSE3ProjectXYZOnlyPose* e = vpEdgesStereo[i];
                 if(!e) continue;
-                
-                float error = e->chi2();
-               
-                //Baseline & Geometry only & YOLO soft
-                //float geo_w = 1.0f;
-                
-                //Geometry soft & Geo+YOLO
-                float geo_w = exp(-error / sigma);
 
-                int idx = vnIndexEdgeStereo[i];
+                const size_t idx = vnIndexEdgeStereo[i];
+
+                float geo_w = 1.0f;
+                if(dcfg.UseGeometry())
+                    geo_w = std::exp(-static_cast<float>(e->chi2()) / dcfg.sigma);
 
                 float semantic_w = 1.0f;
-                if(idx < pFrame->mvFeatureWeight.size())
+                if(dcfg.UseYOLO() && idx < pFrame->mvFeatureWeight.size())
                     semantic_w = pFrame->mvFeatureWeight[idx];
 
-                //Baseline & Geometry only
-                //float final_w = 1.0f;
+                const float final_w = semantic_w * geo_w;
 
-                //Geometry soft
-                //float final_w = geo_w;
+                const float invSigma2 = pFrame->mvInvLevelSigma2[pFrame->mvKeysUn[idx].octave];
+                e->setInformation(Eigen::Matrix3d::Identity() * invSigma2 * final_w);
 
-                //YOLO
-                //float final_w = semantic_w;
-                
-                //Geo+YOLO
-                float final_w = semantic_w * geo_w;
-                
-                
-
-                float invSigma2 =
-                    pFrame->mvInvLevelSigma2[pFrame->mvKeysUn[idx].octave];
-
-                Eigen::Matrix3d Info =
-                    Eigen::Matrix3d::Identity() * invSigma2 * final_w;
-
-                e->setInformation(Info);
-
-                // optional debug (limit it!!)
-                if(i < 5)
+                if(dcfg.verbose && i < 5)
                 {
                     std::cout << "[DEBUG] idx=" << idx
-                            << " sem=" << semantic_w
-                            << " geo=" << geo_w
-                            << " final=" << final_w
-                            << std::endl;
+                              << " sem=" << semantic_w
+                              << " geo=" << geo_w
+                              << " final=" << final_w << std::endl;
                 }
             }
         }
-        
+
         nBad=0;
         for(size_t i=0, iend=vpEdgesMono.size(); i<iend; i++)
         {

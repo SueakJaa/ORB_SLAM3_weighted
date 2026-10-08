@@ -71,6 +71,9 @@ public:
     bool mbUseDynamic;
     bool mbUseYOLO;
     bool mbUseGeometry;
+    double mdYoloTimeTotal;   // accumulated YOLO inference time [s]
+    int    mnYoloFrames;
+    void PrintDynamicStats();
 
     // Preprocess the input and call Track(). Extract features and performs stereo matching.
     Sophus::SE3f GrabImageStereo(const cv::Mat &imRectLeft,const cv::Mat &imRectRight, const double &timestamp, string filename);

@@ -1,9 +1,10 @@
 #include "YOLOdetector.h"
+#include "DynamicConfig.h"
 #include <iostream>
 
 YOLOdetector::YOLOdetector()
 {
-    if(!LoadModel("/home/shirt/yolov5_models/yolov5n.onnx"))
+    if(!LoadModel(ORB_SLAM3::DynamicConfig::Get().yoloModel))
     {
         std::cerr << "FATAL: YOLO model not loaded!" << std::endl;
     }
@@ -27,11 +28,12 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
 {
     if(net.empty())
     {
-        std::cout << "[YOLO] Model not loaded, returning safe mask" << std::endl;
+        std::cerr << "[YOLO] Model not loaded, returning safe mask" << std::endl;
         return cv::Mat(image.rows, image.cols, CV_8UC1, cv::Scalar(255));
     }
 
-    std::cout << "[YOLO] Infer called" << std::endl;
+    const bool verbose = ORB_SLAM3::DynamicConfig::Get().verbose;
+    if(verbose) std::cout << "[YOLO] Infer called" << std::endl;
 
     // ===== Preprocess =====
     cv::Mat blob;
@@ -40,7 +42,7 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
     net.setInput(blob);
     cv::Mat output = net.forward();
 
-    std::cout << "[YOLO] Output size: " << output.size << std::endl;
+    if(verbose) std::cout << "[YOLO] Output size: " << output.size << std::endl;
 
     // ===== Create mask =====
     cv::Mat mask(image.rows, image.cols, CV_8UC1, cv::Scalar(255));
@@ -50,8 +52,8 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
     const int num_detections = 25200;
     const int num_classes = 80;
 
-    float confThreshold = 0.4;
-    float shrink = 0.8;
+    const float confThreshold = ORB_SLAM3::DynamicConfig::Get().yoloConf;
+    const float shrink = 0.8f;  // boxes shrunk to 80% before building the confidence map
 
     for(int i = 0; i < num_detections; i++)
     {
