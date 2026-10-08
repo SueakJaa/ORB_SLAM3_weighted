@@ -1,6 +1,7 @@
 #include "YOLOdetector.h"
 #include "DynamicConfig.h"
 #include <iostream>
+#include <opencv2/core/cuda.hpp>
 
 YOLOdetector::YOLOdetector()
 {
@@ -20,7 +21,42 @@ bool YOLOdetector::LoadModel(const std::string &modelPath)
         return false;
     }
 
-    std::cout << "✅ YOLO model loaded!" << std::endl;
+    std::cout << "YOLO model loaded: " << modelPath << std::endl;
+
+    // ===== Backend selection =====
+    // CUDA is used only if requested AND OpenCV was built with CUDA AND a GPU is visible.
+    // FP32 target (not FP16) so detections match the CPU version as closely as possible.
+    bool useGpu = false;
+    if(ORB_SLAM3::DynamicConfig::Get().yoloGpu)
+    {
+        int nDev = 0;
+        try { nDev = cv::cuda::getCudaEnabledDeviceCount(); } catch(...) { nDev = 0; }
+        if(nDev > 0)
+        {
+            net.setPreferableBackend(cv::dnn::DNN_BACKEND_CUDA);
+            net.setPreferableTarget(cv::dnn::DNN_TARGET_CUDA);
+            useGpu = true;
+        }
+        else
+        {
+            std::cout << "[YOLO] CUDA requested but not available in this OpenCV build -> CPU" << std::endl;
+        }
+    }
+    if(!useGpu)
+    {
+        net.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
+        net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
+    }
+    std::cout << "[YOLO] backend = " << (useGpu ? "CUDA (GPU)" : "OpenCV (CPU)") << std::endl;
+
+    // Warm-up: the first forward pass initialises CUDA/cuDNN (can take ~1 s);
+    // do it here so it is not counted in the per-frame timing.
+    cv::Mat dummy(640, 640, CV_8UC3, cv::Scalar(0, 0, 0));
+    cv::Mat blob;
+    cv::dnn::blobFromImage(dummy, blob, 1/255.0, cv::Size(640, 640), cv::Scalar(), true, false);
+    net.setInput(blob);
+    net.forward();
+
     return true;
 }
 

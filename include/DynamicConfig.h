@@ -15,6 +15,8 @@
 //   DSLAM_SECOND_OPT  1 = extra PoseOptimization after TrackLocalMap (old v3 behaviour)
 //                     0 = paper behaviour                  (default: 0)
 //   DSLAM_VERBOSE     1 = per-frame debug prints           (default: 0, keep 0 for timing)
+//   DSLAM_YOLO_GPU    1 = run YOLO on CUDA if OpenCV was built with CUDA (default: 1)
+//                     0 = force CPU
 
 #pragma once
 
@@ -36,6 +38,7 @@ struct DynamicConfig
     std::string yoloModel  = "/home/shirt/yolov5_models/yolov5n.onnx";
     bool        secondOpt  = false;
     bool        verbose    = false;
+    bool        yoloGpu    = true;
 
     bool UseYOLO()     const { return mode == YOLO || mode == PROPOSED; }
     bool UseGeometry() const { return mode == GEO  || mode == PROPOSED; }
@@ -78,13 +81,15 @@ private:
         if(const char* s = std::getenv("DSLAM_YOLO_MODEL")) c.yoloModel = s;
         if(const char* s = std::getenv("DSLAM_SECOND_OPT")) c.secondOpt = std::atoi(s) != 0;
         if(const char* s = std::getenv("DSLAM_VERBOSE"))    c.verbose   = std::atoi(s) != 0;
+        if(const char* s = std::getenv("DSLAM_YOLO_GPU"))   c.yoloGpu   = std::atoi(s) != 0;
 
         std::cout << "[DynamicConfig] mode=" << c.ModeName()
                   << " sigma=" << c.sigma
                   << " min_sem=" << c.minSem
                   << " yolo_conf=" << c.yoloConf
                   << " second_opt=" << c.secondOpt
-                  << " verbose=" << c.verbose << std::endl;
+                  << " verbose=" << c.verbose
+                  << " yolo_gpu=" << c.yoloGpu << std::endl;
         return c;
     }
 };
