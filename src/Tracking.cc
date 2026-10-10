@@ -51,7 +51,7 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
 {
     // ===== Experiment configuration (see include/DynamicConfig.h) =====
     const DynamicConfig& dcfg = DynamicConfig::Get();
-    mbUseYOLO     = dcfg.UseYOLO();      // yolo, proposed
+    mbUseYOLO     = dcfg.NeedYOLO();     // yolo, proposed, or any mode with DSLAM_MAP_FILTER=1
     mbUseGeometry = dcfg.UseGeometry();  // geo, proposed (applied in Optimizer::PoseOptimization)
     mbUseDynamic  = dcfg.UseYOLO();      // semantic weights only exist when YOLO runs
     mpYOLO = mbUseYOLO ? new YOLOdetector() : nullptr;
@@ -1579,6 +1579,7 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
 
             mCurrentFrame.mDynamicMask = mask.clone();
             mCurrentFrame.mDynamicConfidence = mpYOLO->mConfidenceMap.clone();
+            mCurrentFrame.ComputeDynamicFlags();
 
             if(verbose)
                 std::cout << "YOLO mask applied, size: "
@@ -2430,9 +2431,16 @@ void Tracking::StereoInitialization()
 
         // Create MapPoints and asscoiate to KeyFrame
         if(!mpCamera2){
+            const bool bMapFilter = DynamicConfig::Get().mapFilter;
+            int nSkippedDyn = 0;
             for(int i=0; i<mCurrentFrame.N;i++)
             {
                 float z = mCurrentFrame.mvDepth[i];
+                if(z>0 && bMapFilter && mCurrentFrame.IsDynamic(i))
+                {
+                    nSkippedDyn++;      // DSLAM_MAP_FILTER: no initial map points on people
+                    continue;
+                }
                 if(z>0)
                 {
                     Eigen::Vector3f x3D;
@@ -2447,6 +2455,9 @@ void Tracking::StereoInitialization()
                     mCurrentFrame.mvpMapPoints[i]=pNewMP;
                 }
             }
+            if(bMapFilter)
+                std::cout << "[MapFilter] initial map: skipped " << nSkippedDyn
+                          << " keypoints inside YOLO boxes" << std::endl;
         } else{
             for(int i = 0; i < mCurrentFrame.Nleft; i++){
                 int rightIndex = mCurrentFrame.mvLeftToRightMatch[i];
@@ -3469,11 +3480,15 @@ void Tracking::CreateNewKeyFrame()
         vector<pair<float,int> > vDepthIdx;
         int N = (mCurrentFrame.Nleft != -1) ? mCurrentFrame.Nleft : mCurrentFrame.N;
         vDepthIdx.reserve(mCurrentFrame.N);
+        const bool bMapFilter = DynamicConfig::Get().mapFilter;
         for(int i=0; i<N; i++)
         {
             float z = mCurrentFrame.mvDepth[i];
             if(z>0)
             {
+                // DSLAM_MAP_FILTER: keep existing map points, but never create new ones on people
+                if(bMapFilter && mCurrentFrame.IsDynamic(i) && !mCurrentFrame.mvpMapPoints[i])
+                    continue;
                 vDepthIdx.push_back(make_pair(z,i));
             }
         }

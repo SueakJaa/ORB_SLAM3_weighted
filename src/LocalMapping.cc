@@ -18,6 +18,7 @@
 
 
 #include "LocalMapping.h"
+#include "DynamicConfig.h"
 #include "LoopClosing.h"
 #include "ORBmatcher.h"
 #include "Optimizer.h"
@@ -480,10 +481,15 @@ void LocalMapping::CreateNewMapPoints()
 
         // Triangulate each match
         const int nmatches = vMatchedIndices.size();
+        const bool bMapFilter = DynamicConfig::Get().mapFilter;
         for(int ikp=0; ikp<nmatches; ikp++)
         {
             const int &idx1 = vMatchedIndices[ikp].first;
             const int &idx2 = vMatchedIndices[ikp].second;
+
+            // DSLAM_MAP_FILTER: do not triangulate points on objects YOLO marked as dynamic
+            if(bMapFilter && (mpCurrentKeyFrame->IsDynamic(idx1) || pKF2->IsDynamic(idx2)))
+                continue;
 
             const cv::KeyPoint &kp1 = (mpCurrentKeyFrame -> NLeft == -1) ? mpCurrentKeyFrame->mvKeysUn[idx1]
                                                                          : (idx1 < mpCurrentKeyFrame -> NLeft) ? mpCurrentKeyFrame -> mvKeys[idx1]

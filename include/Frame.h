@@ -234,6 +234,12 @@ public:
     cv::Mat mDynamicMask;
     cv::Mat mDynamicConfidence;
 
+    // true if keypoint i lies inside a YOLO dynamic-object box (filled after YOLO runs).
+    // Empty when YOLO did not run on this frame.
+    std::vector<bool> mvbDynamic;
+    void ComputeDynamicFlags();
+    bool IsDynamic(const size_t i) const { return i < mvbDynamic.size() && mvbDynamic[i]; }
+
     // Corresponding stereo coordinate and depth for each keypoint.
     std::vector<MapPoint*> mvpMapPoints;
     // "Monocular" keypoints have a negative value.

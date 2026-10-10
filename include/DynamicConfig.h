@@ -17,6 +17,13 @@
 //   DSLAM_VERBOSE     1 = per-frame debug prints           (default: 0, keep 0 for timing)
 //   DSLAM_YOLO_GPU    1 = run YOLO on CUDA if OpenCV was built with CUDA (default: 1)
 //                     0 = force CPU
+//   DSLAM_CHI2_GATE   weighted = outlier test on the weighted chi2 (v4 / paper behaviour)
+//                     raw      = outlier test on the unweighted chi2; weights only
+//                                change how much an inlier pulls the pose   (default: weighted)
+//   DSLAM_MAP_FILTER  1 = never create map points on keypoints inside a YOLO dynamic box
+//                         (map initialisation, new keyframes, LocalMapping triangulation).
+//                         Loads YOLO even in geo mode; YOLO is then used for the map only.
+//                     0 = off                                 (default: 0)
 
 #pragma once
 
@@ -39,10 +46,13 @@ struct DynamicConfig
     bool        secondOpt  = false;
     bool        verbose    = false;
     bool        yoloGpu    = true;
+    bool        rawChi2    = false;   // DSLAM_CHI2_GATE=raw
+    bool        mapFilter  = false;   // DSLAM_MAP_FILTER=1
 
     bool UseYOLO()     const { return mode == YOLO || mode == PROPOSED; }
     bool UseGeometry() const { return mode == GEO  || mode == PROPOSED; }
     bool UseWeighting()const { return mode != BASELINE; }
+    bool NeedYOLO()    const { return UseYOLO() || mapFilter; }
 
     const char* ModeName() const
     {
@@ -82,6 +92,15 @@ private:
         if(const char* s = std::getenv("DSLAM_SECOND_OPT")) c.secondOpt = std::atoi(s) != 0;
         if(const char* s = std::getenv("DSLAM_VERBOSE"))    c.verbose   = std::atoi(s) != 0;
         if(const char* s = std::getenv("DSLAM_YOLO_GPU"))   c.yoloGpu   = std::atoi(s) != 0;
+        if(const char* s = std::getenv("DSLAM_CHI2_GATE"))
+        {
+            std::string g(s);
+            if(g == "raw")           c.rawChi2 = true;
+            else if(g == "weighted") c.rawChi2 = false;
+            else std::cerr << "[DynamicConfig] Unknown DSLAM_CHI2_GATE '" << g
+                           << "', using 'weighted'" << std::endl;
+        }
+        if(const char* s = std::getenv("DSLAM_MAP_FILTER")) c.mapFilter = std::atoi(s) != 0;
 
         std::cout << "[DynamicConfig] mode=" << c.ModeName()
                   << " sigma=" << c.sigma
@@ -89,7 +108,9 @@ private:
                   << " yolo_conf=" << c.yoloConf
                   << " second_opt=" << c.secondOpt
                   << " verbose=" << c.verbose
-                  << " yolo_gpu=" << c.yoloGpu << std::endl;
+                  << " yolo_gpu=" << c.yoloGpu
+                  << " chi2_gate=" << (c.rawChi2 ? "raw" : "weighted")
+                  << " map_filter=" << c.mapFilter << std::endl;
         return c;
     }
 };

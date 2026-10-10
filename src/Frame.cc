@@ -72,6 +72,11 @@ Frame::Frame(const Frame &frame)
      mTlr(frame.mTlr), mRlr(frame.mRlr), mtlr(frame.mtlr), mTrl(frame.mTrl),
      mTcw(frame.mTcw), mbHasPose(false), mbHasVelocity(false)
 {
+    mvFeatureWeight    = frame.mvFeatureWeight;
+    mDynamicMask       = frame.mDynamicMask;
+    mDynamicConfidence = frame.mDynamicConfidence;
+    mvbDynamic         = frame.mvbDynamic;
+
     for(int i=0;i<FRAME_GRID_COLS;i++)
         for(int j=0; j<FRAME_GRID_ROWS; j++){
             mGrid[i][j]=frame.mGrid[i][j];
@@ -1252,6 +1257,25 @@ bool Frame::isInFrustumChecks(MapPoint *pMP, float viewingCosLimit, bool bRight)
 
 Eigen::Vector3f Frame::UnprojectStereoFishEye(const int &i){
     return mRwc * mvStereo3Dpoints[i] + mOw;
+}
+
+void Frame::ComputeDynamicFlags()
+{
+    // A keypoint is "dynamic" if it falls inside a YOLO box of a dynamic class
+    // (YOLOdetector writes the box confidence there; 0 everywhere else).
+    mvbDynamic.assign(N, false);
+    if(mDynamicConfidence.empty())
+        return;
+
+    for(int i = 0; i < N; i++)
+    {
+        const cv::KeyPoint &kp = (Nleft == -1 || i < Nleft) ? mvKeys[i] : mvKeysRight[i - Nleft];
+        const int x = static_cast<int>(kp.pt.x);
+        const int y = static_cast<int>(kp.pt.y);
+        if(x < 0 || y < 0 || x >= mDynamicConfidence.cols || y >= mDynamicConfidence.rows)
+            continue;
+        mvbDynamic[i] = mDynamicConfidence.at<float>(y, x) > 0.0f;
+    }
 }
 
 } //namespace ORB_SLAM

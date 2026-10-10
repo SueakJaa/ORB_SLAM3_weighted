@@ -1163,25 +1163,22 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 e->computeError();
             }
 
-            const float chi2 = e->chi2();
-
-            if(it == 0)
+            // g2o's chi2() uses the edge's current information matrix, i.e. it includes
+            // the semantic-geometric weight w. With w_geo = exp(-chi2/sigma) the weighted
+            // value can never exceed 7.36 (< 7.815) for sigma = 20, so with the weighted gate
+            // no stereo edge can be rejected after round 0 and dynamic points stay inliers.
+            // DSLAM_CHI2_GATE=raw tests the unweighted reprojection cost instead
+            // (same as original ORB-SLAM3); the weight then only scales how much an inlier
+            // pulls on the pose.
+            float chi2;
+            if(dcfg.rawChi2)
             {
-                float error_weight;
-
-                if(chi2 > 10.0)
-                    error_weight = 0.05f;
-                else if(chi2 > 5.0)
-                    error_weight = 0.1f;
-                else if(chi2 > 2.0)
-                    error_weight = 0.2f;
-                else
-                    error_weight = 1.0f;
-
-                //if(idx < pFrame->mvFeatureWeight.size())
-                {
-                    //pFrame->mvFeatureWeight[idx] *= error_weight;
-                }
+                const float invSigma2 = pFrame->mvInvLevelSigma2[pFrame->mvKeysUn[idx].octave];
+                chi2 = static_cast<float>(invSigma2 * e->error().squaredNorm());
+            }
+            else
+            {
+                chi2 = static_cast<float>(e->chi2());
             }
 
             if(chi2>chi2Stereo[it])
