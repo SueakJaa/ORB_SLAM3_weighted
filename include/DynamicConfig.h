@@ -24,6 +24,12 @@
 //                     raw      = test the unweighted chi2 after every round (ORB-SLAM3)
 //                     late     = no rejection after rounds 0 and 1; unweighted test after
 //                                rounds 2 and 3 (soft first, hard rejection only at the end)
+//   DSLAM_LABELS      which outlier labels (mvbOutlier) PoseOptimization hands to the rest of
+//                     ORB-SLAM3 (tracking discards, new keyframe points, map point statistics,
+//                     keyframe decision). The optimisation itself is unchanged.   (default: opt)
+//                     opt  = labels from the gate used during optimisation (normal behaviour)
+//                     raw  = relabel after the last round with the unweighted chi2 test
+//                     none = report every point as inlier
 //   DSLAM_KERNEL      robust kernel in PoseOptimization                (default: huber)
 //                     huber  = ORB-SLAM3 default (delta^2 = 5.991 mono / 7.815 stereo)
 //                     cauchy = same deltas
@@ -57,7 +63,9 @@ struct DynamicConfig
     bool        yoloGpu    = true;
     enum Gate   { GATE_WEIGHTED = 0, GATE_RAW = 1, GATE_LATE = 2 };
     enum Kernel { KERNEL_HUBER = 0, KERNEL_CAUCHY = 1, KERNEL_WELSCH = 2 };
+    enum Labels { LABELS_OPT = 0, LABELS_RAW = 1, LABELS_NONE = 2 };
     Gate        gate       = GATE_WEIGHTED;
+    Labels      labels     = LABELS_OPT;
     Kernel      kernel     = KERNEL_HUBER;
     bool        mapFilter  = false;   // DSLAM_MAP_FILTER=1
 
@@ -69,6 +77,10 @@ struct DynamicConfig
     const char* GateName() const
     {
         return gate == GATE_RAW ? "raw" : gate == GATE_LATE ? "late" : "weighted";
+    }
+    const char* LabelsName() const
+    {
+        return labels == LABELS_RAW ? "raw" : labels == LABELS_NONE ? "none" : "opt";
     }
     const char* KernelName() const
     {
@@ -122,6 +134,15 @@ private:
             else std::cerr << "[DynamicConfig] Unknown DSLAM_CHI2_GATE '" << g
                            << "', using 'weighted'" << std::endl;
         }
+        if(const char* s = std::getenv("DSLAM_LABELS"))
+        {
+            std::string l(s);
+            if(l == "raw")           c.labels = LABELS_RAW;
+            else if(l == "none")     c.labels = LABELS_NONE;
+            else if(l == "opt")      c.labels = LABELS_OPT;
+            else std::cerr << "[DynamicConfig] Unknown DSLAM_LABELS '" << l
+                           << "', using 'opt'" << std::endl;
+        }
         if(const char* s = std::getenv("DSLAM_KERNEL"))
         {
             std::string k(s);
@@ -142,6 +163,7 @@ private:
                   << " yolo_gpu=" << c.yoloGpu
                   << " chi2_gate=" << c.GateName()
                   << " kernel=" << c.KernelName()
+                  << " labels=" << c.LabelsName()
                   << " map_filter=" << c.mapFilter << std::endl;
         return c;
     }

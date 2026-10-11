@@ -1214,6 +1214,44 @@ int Optimizer::PoseOptimization(Frame *pFrame)
             break;
     }    
 
+    // ===== DSLAM_LABELS: decouple the labels the rest of ORB-SLAM3 sees from the optimisation =====
+    // The pose is already final here; only mvbOutlier (and the returned inlier count) change.
+    if(dcfg.labels != DynamicConfig::LABELS_OPT)
+    {
+        const bool bNone = (dcfg.labels == DynamicConfig::LABELS_NONE);
+        nBad = 0;
+
+        for(size_t i=0; i<vpEdgesMono.size(); i++)
+        {
+            ORB_SLAM3::EdgeSE3ProjectXYZOnlyPose* e = vpEdgesMono[i];
+            const size_t idx = vnIndexEdgeMono[i];
+            e->computeError();
+            const bool bOut = !bNone && (e->chi2() > chi2Mono[3]);   // mono edges are never weighted
+            pFrame->mvbOutlier[idx] = bOut;
+            if(bOut) nBad++;
+        }
+        for(size_t i=0; i<vpEdgesMono_FHR.size(); i++)
+        {
+            ORB_SLAM3::EdgeSE3ProjectXYZOnlyPoseToBody* e = vpEdgesMono_FHR[i];
+            const size_t idx = vnIndexEdgeRight[i];
+            e->computeError();
+            const bool bOut = !bNone && (e->chi2() > chi2Mono[3]);
+            pFrame->mvbOutlier[idx] = bOut;
+            if(bOut) nBad++;
+        }
+        for(size_t i=0; i<vpEdgesStereo.size(); i++)
+        {
+            g2o::EdgeStereoSE3ProjectXYZOnlyPose* e = vpEdgesStereo[i];
+            const size_t idx = vnIndexEdgeStereo[i];
+            e->computeError();
+            const float invSigma2 = pFrame->mvInvLevelSigma2[pFrame->mvKeysUn[idx].octave];
+            const float rawChi2 = static_cast<float>(invSigma2 * e->error().squaredNorm());
+            const bool bOut = !bNone && (rawChi2 > chi2Stereo[3]);
+            pFrame->mvbOutlier[idx] = bOut;
+            if(bOut) nBad++;
+        }
+    }
+
     // Recover optimized pose and return number of inliers
     g2o::VertexSE3Expmap* vSE3_recov = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(0));
     g2o::SE3Quat SE3quat_recov = vSE3_recov->estimate();
