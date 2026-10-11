@@ -2314,6 +2314,7 @@ void Tracking::Track()
             // pass to the new keyframe, so that bundle adjustment will finally decide
             // if they are outliers or not. We don't want next frame to estimate its position
             // with those points so we discard them in the frame. Only has effect if lastframe is tracked
+            if(!DynamicConfig::Get().ignE2)   // DSLAM_IGNORE=E2 keeps outlier links for the keyframe / next frame
             for(int i=0; i<mCurrentFrame.N;i++)
             {
                 if(mCurrentFrame.mvpMapPoints[i] && mCurrentFrame.mvbOutlier[i])
@@ -2815,7 +2816,7 @@ bool Tracking::TrackReferenceKeyFrame()
         //if(i >= mCurrentFrame.Nleft) break;
         if(mCurrentFrame.mvpMapPoints[i])
         {
-            if(mCurrentFrame.mvbOutlier[i])
+            if(mCurrentFrame.mvbOutlier[i] && !DynamicConfig::Get().ignE1)   // DSLAM_IGNORE=E1 keeps the link
             {
                 MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
 
@@ -2978,7 +2979,7 @@ bool Tracking::TrackWithMotionModel()
     {
         if(mCurrentFrame.mvpMapPoints[i])
         {
-            if(mCurrentFrame.mvbOutlier[i])
+            if(mCurrentFrame.mvbOutlier[i] && !DynamicConfig::Get().ignE1)   // DSLAM_IGNORE=E1 keeps the link
             {
                 MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
 
@@ -3230,9 +3231,14 @@ bool Tracking::TrackLocalMap()
     {
         if(mCurrentFrame.mvpMapPoints[i])
         {
-            if(!mCurrentFrame.mvbOutlier[i])
-            {
+            const bool bOut = mCurrentFrame.mvbOutlier[i];
+            const DynamicConfig& dc = DynamicConfig::Get();
+
+            if(!bOut || dc.ignE3)          // DSLAM_IGNORE=E3: outliers also count as found
                 mCurrentFrame.mvpMapPoints[i]->IncreaseFound();
+
+            if(!bOut || dc.ignE5)          // DSLAM_IGNORE=E5: outliers also count as inliers here
+            {
                 if(!mbOnlyTracking)
                 {
                     if(mCurrentFrame.mvpMapPoints[i]->Observations()>0)
@@ -3241,7 +3247,8 @@ bool Tracking::TrackLocalMap()
                 else
                     mnMatchesInliers++;
             }
-            else if(mSensor==System::STEREO)
+
+            if(bOut && mSensor==System::STEREO)
                 mCurrentFrame.mvpMapPoints[i] = static_cast<MapPoint*>(NULL);
         }
     }
@@ -3335,7 +3342,8 @@ bool Tracking::NeedNewKeyFrame()
         {
             if(mCurrentFrame.mvDepth[i]>0 && mCurrentFrame.mvDepth[i]<mThDepth)
             {
-                if(mCurrentFrame.mvpMapPoints[i] && !mCurrentFrame.mvbOutlier[i])
+                if(mCurrentFrame.mvpMapPoints[i] &&
+                   (!mCurrentFrame.mvbOutlier[i] || DynamicConfig::Get().ignE4))   // DSLAM_IGNORE=E4
                     nTrackedClose++;
                 else
                     nNonTrackedClose++;

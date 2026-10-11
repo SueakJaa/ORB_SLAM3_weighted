@@ -30,6 +30,16 @@
 //                     opt  = labels from the gate used during optimisation (normal behaviour)
 //                     raw  = relabel after the last round with the unweighted chi2 test
 //                     none = report every point as inlier
+//   DSLAM_IGNORE      comma-separated list: places in Tracking that should ignore the outlier label
+//                     (labels are still computed normally; only that one use is switched off)
+//                     E1 = tracking discard: outlier points keep their map-point link
+//                          (TrackReferenceKeyFrame / TrackWithMotionModel)
+//                     E2 = pre-keyframe cleanup: outlier links are not removed before the next frame /
+//                          CreateNewKeyFrame (which would otherwise create NEW map points there)
+//                     E3 = map statistics: outliers also count as "found" (MapPoint::IncreaseFound)
+//                     E4 = keyframe decision: outliers count as tracked close points (NeedNewKeyFrame)
+//                     E5 = inlier count: outliers count in mnMatchesInliers (tracking-OK test, KF ratio)
+//                     e.g. DSLAM_IGNORE=E2   or   DSLAM_IGNORE=E1,E2,E3,E4,E5   (default: empty)
 //   DSLAM_KERNEL      robust kernel in PoseOptimization                (default: huber)
 //                     huber  = ORB-SLAM3 default (delta^2 = 5.991 mono / 7.815 stereo)
 //                     cauchy = same deltas
@@ -66,6 +76,7 @@ struct DynamicConfig
     enum Labels { LABELS_OPT = 0, LABELS_RAW = 1, LABELS_NONE = 2 };
     Gate        gate       = GATE_WEIGHTED;
     Labels      labels     = LABELS_OPT;
+    bool        ignE1 = false, ignE2 = false, ignE3 = false, ignE4 = false, ignE5 = false;
     Kernel      kernel     = KERNEL_HUBER;
     bool        mapFilter  = false;   // DSLAM_MAP_FILTER=1
 
@@ -143,6 +154,15 @@ private:
             else std::cerr << "[DynamicConfig] Unknown DSLAM_LABELS '" << l
                            << "', using 'opt'" << std::endl;
         }
+        if(const char* s = std::getenv("DSLAM_IGNORE"))
+        {
+            const std::string v = "," + std::string(s) + ",";
+            c.ignE1 = v.find(",E1,") != std::string::npos;
+            c.ignE2 = v.find(",E2,") != std::string::npos;
+            c.ignE3 = v.find(",E3,") != std::string::npos;
+            c.ignE4 = v.find(",E4,") != std::string::npos;
+            c.ignE5 = v.find(",E5,") != std::string::npos;
+        }
         if(const char* s = std::getenv("DSLAM_KERNEL"))
         {
             std::string k(s);
@@ -164,6 +184,8 @@ private:
                   << " chi2_gate=" << c.GateName()
                   << " kernel=" << c.KernelName()
                   << " labels=" << c.LabelsName()
+                  << " ignore=" << (c.ignE1?"E1":"") << (c.ignE2?"E2":"") << (c.ignE3?"E3":"")
+                  << (c.ignE4?"E4":"") << (c.ignE5?"E5":"")
                   << " map_filter=" << c.mapFilter << std::endl;
         return c;
     }
