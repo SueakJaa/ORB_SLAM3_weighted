@@ -18,6 +18,7 @@
 
 
 #include "ORBmatcher.h"
+#include "DynamicConfig.h"
 
 #include<limits.h>
 
@@ -1697,7 +1698,7 @@ namespace ORB_SLAM3
             MapPoint* pMP = LastFrame.mvpMapPoints[i];
             if(pMP)
             {
-                if(!LastFrame.mvbOutlier[i])
+                if(!LastFrame.mvbOutlier[i] || DynamicConfig::Get().ignE6)   // DSLAM_IGNORE=E6
                 {
                     // Project
                     Eigen::Vector3f x3Dw = pMP->GetWorldPos();

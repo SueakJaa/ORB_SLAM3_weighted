@@ -39,6 +39,8 @@
 //                     E3 = map statistics: outliers also count as "found" (MapPoint::IncreaseFound)
 //                     E4 = keyframe decision: outliers count as tracked close points (NeedNewKeyFrame)
 //                     E5 = inlier count: outliers count in mnMatchesInliers (tracking-OK test, KF ratio)
+//                     E6 = frame-to-frame matching: last frame's outliers are still projected and
+//                          matched into the current frame (ORBmatcher::SearchByProjection)
 //                     e.g. DSLAM_IGNORE=E2   or   DSLAM_IGNORE=E1,E2,E3,E4,E5   (default: empty)
 //   DSLAM_KERNEL      robust kernel in PoseOptimization                (default: huber)
 //                     huber  = ORB-SLAM3 default (delta^2 = 5.991 mono / 7.815 stereo)
@@ -76,7 +78,7 @@ struct DynamicConfig
     enum Labels { LABELS_OPT = 0, LABELS_RAW = 1, LABELS_NONE = 2 };
     Gate        gate       = GATE_WEIGHTED;
     Labels      labels     = LABELS_OPT;
-    bool        ignE1 = false, ignE2 = false, ignE3 = false, ignE4 = false, ignE5 = false;
+    bool        ignE1 = false, ignE2 = false, ignE3 = false, ignE4 = false, ignE5 = false, ignE6 = false;
     Kernel      kernel     = KERNEL_HUBER;
     bool        mapFilter  = false;   // DSLAM_MAP_FILTER=1
 
@@ -162,6 +164,7 @@ private:
             c.ignE3 = v.find(",E3,") != std::string::npos;
             c.ignE4 = v.find(",E4,") != std::string::npos;
             c.ignE5 = v.find(",E5,") != std::string::npos;
+            c.ignE6 = v.find(",E6,") != std::string::npos;
         }
         if(const char* s = std::getenv("DSLAM_KERNEL"))
         {
@@ -185,7 +188,7 @@ private:
                   << " kernel=" << c.KernelName()
                   << " labels=" << c.LabelsName()
                   << " ignore=" << (c.ignE1?"E1":"") << (c.ignE2?"E2":"") << (c.ignE3?"E3":"")
-                  << (c.ignE4?"E4":"") << (c.ignE5?"E5":"")
+                  << (c.ignE4?"E4":"") << (c.ignE5?"E5":"") << (c.ignE6?"E6":"")
                   << " map_filter=" << c.mapFilter << std::endl;
         return c;
     }
