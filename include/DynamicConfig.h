@@ -17,9 +17,18 @@
 //   DSLAM_VERBOSE     1 = per-frame debug prints           (default: 0, keep 0 for timing)
 //   DSLAM_YOLO_GPU    1 = run YOLO on CUDA if OpenCV was built with CUDA (default: 1)
 //                     0 = force CPU
-//   DSLAM_CHI2_GATE   weighted = outlier test on the weighted chi2 (v4 / paper behaviour)
-//                     raw      = outlier test on the unweighted chi2; weights only
-//                                change how much an inlier pulls the pose   (default: weighted)
+//   DSLAM_CHI2_GATE   when and how PoseOptimization rejects outliers  (default: weighted)
+//                     weighted = test the weighted chi2 after every round (v4/v5 behaviour;
+//                                with w_geo the weighted chi2 never exceeds 7.36, so in
+//                                practice nothing is rejected)
+//                     raw      = test the unweighted chi2 after every round (ORB-SLAM3)
+//                     late     = no rejection after rounds 0 and 1; unweighted test after
+//                                rounds 2 and 3 (soft first, hard rejection only at the end)
+//   DSLAM_KERNEL      robust kernel in PoseOptimization                (default: huber)
+//                     huber  = ORB-SLAM3 default (delta^2 = 5.991 mono / 7.815 stereo)
+//                     cauchy = same deltas
+//                     welsch = rho'(e2) = exp(-e2 / DSLAM_SIGMA): the same function as w_geo,
+//                              but re-evaluated in every iteration instead of frozen after round 0
 //   DSLAM_MAP_FILTER  1 = never create map points on keypoints inside a YOLO dynamic box
 //                         (map initialisation, new keyframes, LocalMapping triangulation).
 //                         Loads YOLO even in geo mode; YOLO is then used for the map only.
@@ -46,13 +55,25 @@ struct DynamicConfig
     bool        secondOpt  = false;
     bool        verbose    = false;
     bool        yoloGpu    = true;
-    bool        rawChi2    = false;   // DSLAM_CHI2_GATE=raw
+    enum Gate   { GATE_WEIGHTED = 0, GATE_RAW = 1, GATE_LATE = 2 };
+    enum Kernel { KERNEL_HUBER = 0, KERNEL_CAUCHY = 1, KERNEL_WELSCH = 2 };
+    Gate        gate       = GATE_WEIGHTED;
+    Kernel      kernel     = KERNEL_HUBER;
     bool        mapFilter  = false;   // DSLAM_MAP_FILTER=1
 
     bool UseYOLO()     const { return mode == YOLO || mode == PROPOSED; }
     bool UseGeometry() const { return mode == GEO  || mode == PROPOSED; }
     bool UseWeighting()const { return mode != BASELINE; }
     bool NeedYOLO()    const { return UseYOLO() || mapFilter; }
+
+    const char* GateName() const
+    {
+        return gate == GATE_RAW ? "raw" : gate == GATE_LATE ? "late" : "weighted";
+    }
+    const char* KernelName() const
+    {
+        return kernel == KERNEL_CAUCHY ? "cauchy" : kernel == KERNEL_WELSCH ? "welsch" : "huber";
+    }
 
     const char* ModeName() const
     {
@@ -95,10 +116,20 @@ private:
         if(const char* s = std::getenv("DSLAM_CHI2_GATE"))
         {
             std::string g(s);
-            if(g == "raw")           c.rawChi2 = true;
-            else if(g == "weighted") c.rawChi2 = false;
+            if(g == "raw")           c.gate = GATE_RAW;
+            else if(g == "late")     c.gate = GATE_LATE;
+            else if(g == "weighted") c.gate = GATE_WEIGHTED;
             else std::cerr << "[DynamicConfig] Unknown DSLAM_CHI2_GATE '" << g
                            << "', using 'weighted'" << std::endl;
+        }
+        if(const char* s = std::getenv("DSLAM_KERNEL"))
+        {
+            std::string k(s);
+            if(k == "cauchy")        c.kernel = KERNEL_CAUCHY;
+            else if(k == "welsch")   c.kernel = KERNEL_WELSCH;
+            else if(k == "huber")    c.kernel = KERNEL_HUBER;
+            else std::cerr << "[DynamicConfig] Unknown DSLAM_KERNEL '" << k
+                           << "', using 'huber'" << std::endl;
         }
         if(const char* s = std::getenv("DSLAM_MAP_FILTER")) c.mapFilter = std::atoi(s) != 0;
 
@@ -109,7 +140,8 @@ private:
                   << " second_opt=" << c.secondOpt
                   << " verbose=" << c.verbose
                   << " yolo_gpu=" << c.yoloGpu
-                  << " chi2_gate=" << (c.rawChi2 ? "raw" : "weighted")
+                  << " chi2_gate=" << c.GateName()
+                  << " kernel=" << c.KernelName()
                   << " map_filter=" << c.mapFilter << std::endl;
         return c;
     }

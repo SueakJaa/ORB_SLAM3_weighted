@@ -812,6 +812,46 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
 }
 
 
+// ---- robust kernel used by PoseOptimization (DSLAM_KERNEL) ----
+// Welsch / Leclerc: rho(s) = d2 * (1 - exp(-s/d2)),  rho'(s) = exp(-s/d2).
+// With d2 = DSLAM_SIGMA the IRLS weight is exactly w_geo = exp(-chi2/sigma),
+// but recomputed at every iteration instead of frozen after round 0.
+class RobustKernelWelsch : public g2o::RobustKernel
+{
+public:
+    explicit RobustKernelWelsch(double deltaSqr) : _d2(deltaSqr) {}
+    virtual void robustify(double e2, Eigen::Vector3d& rho) const
+    {
+        const double w = std::exp(-e2 / _d2);
+        rho[0] = _d2 * (1.0 - w);
+        rho[1] = w;
+        rho[2] = -w / _d2;
+    }
+private:
+    double _d2;
+};
+
+static g2o::RobustKernel* MakePoseKernel(const DynamicConfig& cfg, const float delta)
+{
+    switch(cfg.kernel)
+    {
+        case DynamicConfig::KERNEL_CAUCHY:
+        {
+            g2o::RobustKernelCauchy* rk = new g2o::RobustKernelCauchy;
+            rk->setDelta(delta);
+            return rk;
+        }
+        case DynamicConfig::KERNEL_WELSCH:
+            return new RobustKernelWelsch(cfg.sigma);
+        default:
+        {
+            g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+            rk->setDelta(delta);
+            return rk;
+        }
+    }
+}
+
 int Optimizer::PoseOptimization(Frame *pFrame)
 {
     g2o::SparseOptimizer optimizer;
@@ -884,9 +924,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                     // Unweighted, as in original ORB-SLAM3 (paper weights stereo edges only)
                     e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
 
-                    g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
-                    e->setRobustKernel(rk);
-                    rk->setDelta(deltaMono);
+                    e->setRobustKernel(MakePoseKernel(dcfg, deltaMono));
 
                     e->pCamera = pFrame->mpCamera;
                     e->Xw = pMP->GetWorldPos().cast<double>();
@@ -916,9 +954,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                     Eigen::Matrix3d Info = Eigen::Matrix3d::Identity() * invSigma2;
                     e->setInformation(Info);
 
-                    g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
-                    e->setRobustKernel(rk);
-                    rk->setDelta(deltaStereo);
+                    e->setRobustKernel(MakePoseKernel(dcfg, deltaStereo));
 
                     e->fx = pFrame->fx;
                     e->fy = pFrame->fy;
@@ -955,9 +991,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                    
                     e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
 
-                    g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
-                    e->setRobustKernel(rk);
-                    rk->setDelta(deltaMono);
+                    e->setRobustKernel(MakePoseKernel(dcfg, deltaMono));
 
                     e->pCamera = pFrame->mpCamera;
                     e->Xw = pMP->GetWorldPos().cast<double>();
@@ -984,9 +1018,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
 
                     e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
 
-                    g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
-                    e->setRobustKernel(rk);
-                    rk->setDelta(deltaMono);
+                    e->setRobustKernel(MakePoseKernel(dcfg, deltaMono));
 
                     e->pCamera = pFrame->mpCamera2;
                     e->Xw = pMP->GetWorldPos().cast<double>();
@@ -1056,6 +1088,9 @@ int Optimizer::PoseOptimization(Frame *pFrame)
             }
         }
 
+        // DSLAM_CHI2_GATE=late: soft (kernel + weights) in rounds 0-1, hard unweighted test after rounds 2-3
+        const bool bNoRejectThisRound = (dcfg.gate == DynamicConfig::GATE_LATE && it < 2);
+
         nBad=0;
         for(size_t i=0, iend=vpEdgesMono.size(); i<iend; i++)
         {
@@ -1069,26 +1104,13 @@ int Optimizer::PoseOptimization(Frame *pFrame)
             }
 
             const float chi2 = e->chi2();
-            if(it == 0)
+
+            if(bNoRejectThisRound)
             {
-                float error_weight;
-
-                if(chi2 > 10.0)
-                    error_weight = 0.05f;
-                else if(chi2 > 5.0)
-                    error_weight = 0.1f;
-                else if(chi2 > 2.0)
-                    error_weight = 0.2f;
-                else
-                    error_weight = 1.0f;
-
-                //if(idx < pFrame->mvFeatureWeight.size())
-                {
-                   // pFrame->mvFeatureWeight[idx] *= error_weight;
-                }
+                pFrame->mvbOutlier[idx]=false;   // DSLAM_CHI2_GATE=late: keep every point for now
+                e->setLevel(0);
             }
-
-            if(chi2>chi2Mono[it])
+            else if(chi2>chi2Mono[it])
             {                
                 pFrame->mvbOutlier[idx]=true;
                 e->setLevel(1);
@@ -1117,26 +1139,12 @@ int Optimizer::PoseOptimization(Frame *pFrame)
 
             const float chi2 = e->chi2();
 
-            if(it == 0)
+            if(bNoRejectThisRound)
             {
-                float error_weight;
-
-                if(chi2 > 10.0)
-                    error_weight = 0.05f;
-                else if(chi2 > 5.0)
-                    error_weight = 0.1f;
-                else if(chi2 > 2.0)
-                    error_weight = 0.2f;
-                else
-                    error_weight = 1.0f;
-
-                //if(idx < pFrame->mvFeatureWeight.size())
-                {
-                    //pFrame->mvFeatureWeight[idx] *= error_weight;
-                }
+                pFrame->mvbOutlier[idx]=false;   // DSLAM_CHI2_GATE=late: keep every point for now
+                e->setLevel(0);
             }
-
-            if(chi2>chi2Mono[it])
+            else if(chi2>chi2Mono[it])
             {
                 pFrame->mvbOutlier[idx]=true;
                 e->setLevel(1);
@@ -1171,7 +1179,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
             // (same as original ORB-SLAM3); the weight then only scales how much an inlier
             // pulls on the pose.
             float chi2;
-            if(dcfg.rawChi2)
+            if(dcfg.gate != DynamicConfig::GATE_WEIGHTED)
             {
                 const float invSigma2 = pFrame->mvInvLevelSigma2[pFrame->mvKeysUn[idx].octave];
                 chi2 = static_cast<float>(invSigma2 * e->error().squaredNorm());
@@ -1181,7 +1189,12 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 chi2 = static_cast<float>(e->chi2());
             }
 
-            if(chi2>chi2Stereo[it])
+            if(bNoRejectThisRound)
+            {
+                pFrame->mvbOutlier[idx]=false;   // DSLAM_CHI2_GATE=late: keep every point for now
+                e->setLevel(0);
+            }
+            else if(chi2>chi2Stereo[it])
             {
                 pFrame->mvbOutlier[idx]=true;
                 e->setLevel(1);
