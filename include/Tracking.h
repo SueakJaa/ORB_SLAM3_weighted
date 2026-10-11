@@ -322,6 +322,7 @@ protected:
 
     //Current matches in frame
     int mnMatchesInliers;
+    int mnMatchesInliersKF = 0;   // inlier count used only by NeedNewKeyFrame (DSLAM_IGNORE=E5b)
 
     //Last Frame, KeyFrame and Relocalisation Info
     KeyFrame* mpLastKeyFrame;

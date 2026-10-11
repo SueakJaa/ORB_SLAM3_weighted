@@ -3225,6 +3225,7 @@ bool Tracking::TrackLocalMap()
         }
 
     mnMatchesInliers = 0;
+    mnMatchesInliersKF = 0;
 
     // Update MapPoints Statistics
     for(int i=0; i<mCurrentFrame.N; i++)
@@ -3237,16 +3238,16 @@ bool Tracking::TrackLocalMap()
             if(!bOut || dc.ignE3)          // DSLAM_IGNORE=E3: outliers also count as found
                 mCurrentFrame.mvpMapPoints[i]->IncreaseFound();
 
-            if(!bOut || dc.ignE5)          // DSLAM_IGNORE=E5: outliers also count as inliers here
-            {
-                if(!mbOnlyTracking)
-                {
-                    if(mCurrentFrame.mvpMapPoints[i]->Observations()>0)
-                        mnMatchesInliers++;
-                }
-                else
-                    mnMatchesInliers++;
-            }
+            const bool bCounts = mbOnlyTracking || mCurrentFrame.mvpMapPoints[i]->Observations()>0;
+
+            // tracking-OK test (DSLAM_IGNORE=E5a: outliers count too)
+            if(bCounts && (!bOut || dc.ignE5a))
+                mnMatchesInliers++;
+
+            // keyframe decision (DSLAM_IGNORE=E5b: outliers count too;
+            // with DSLAM_KF_SEMANTIC=1 only outliers inside a YOLO dynamic box)
+            if(bCounts && (!bOut || (dc.ignE5b && (!dc.kfSemantic || mCurrentFrame.IsDynamic(i)))))
+                mnMatchesInliersKF++;
 
             if(bOut && mSensor==System::STEREO)
                 mCurrentFrame.mvpMapPoints[i] = static_cast<MapPoint*>(NULL);
@@ -3342,8 +3343,11 @@ bool Tracking::NeedNewKeyFrame()
         {
             if(mCurrentFrame.mvDepth[i]>0 && mCurrentFrame.mvDepth[i]<mThDepth)
             {
-                if(mCurrentFrame.mvpMapPoints[i] &&
-                   (!mCurrentFrame.mvbOutlier[i] || DynamicConfig::Get().ignE4))   // DSLAM_IGNORE=E4
+                const DynamicConfig& dc = DynamicConfig::Get();
+                // DSLAM_IGNORE=E4: outliers count as tracked close points
+                // (with DSLAM_KF_SEMANTIC=1 only outliers inside a YOLO dynamic box)
+                const bool bOutIgnored = dc.ignE4 && (!dc.kfSemantic || mCurrentFrame.IsDynamic(i));
+                if(mCurrentFrame.mvpMapPoints[i] && (!mCurrentFrame.mvbOutlier[i] || bOutIgnored))
                     nTrackedClose++;
                 else
                     nNonTrackedClose++;
@@ -3376,7 +3380,7 @@ bool Tracking::NeedNewKeyFrame()
 
     if(mSensor==System::IMU_MONOCULAR)
     {
-        if(mnMatchesInliers>350) // Points tracked from the local map
+        if(mnMatchesInliersKF>350) // Points tracked from the local map
             thRefRatio = 0.75f;
         else
             thRefRatio = 0.90f;
@@ -3387,9 +3391,9 @@ bool Tracking::NeedNewKeyFrame()
     // Condition 1b: More than "MinFrames" have passed and Local Mapping is idle
     const bool c1b = ((mCurrentFrame.mnId>=mnLastKeyFrameId+mMinFrames) && bLocalMappingIdle); //mpLocalMapper->KeyframesInQueue() < 2);
     //Condition 1c: tracking is weak
-    const bool c1c = mSensor!=System::MONOCULAR && mSensor!=System::IMU_MONOCULAR && mSensor!=System::IMU_STEREO && mSensor!=System::IMU_RGBD && (mnMatchesInliers<nRefMatches*0.25 || bNeedToInsertClose) ;
+    const bool c1c = mSensor!=System::MONOCULAR && mSensor!=System::IMU_MONOCULAR && mSensor!=System::IMU_STEREO && mSensor!=System::IMU_RGBD && (mnMatchesInliersKF<nRefMatches*0.25 || bNeedToInsertClose) ;
     // Condition 2: Few tracked points compared to reference keyframe. Lots of visual odometry compared to map matches.
-    const bool c2 = (((mnMatchesInliers<nRefMatches*thRefRatio || bNeedToInsertClose)) && mnMatchesInliers>15);
+    const bool c2 = (((mnMatchesInliersKF<nRefMatches*thRefRatio || bNeedToInsertClose)) && mnMatchesInliersKF>15);
 
     //std::cout << "NeedNewKF: c1a=" << c1a << "; c1b=" << c1b << "; c1c=" << c1c << "; c2=" << c2 << std::endl;
     // Temporal condition for Inertial cases

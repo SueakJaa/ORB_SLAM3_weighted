@@ -38,10 +38,17 @@
 //                          CreateNewKeyFrame (which would otherwise create NEW map points there)
 //                     E3 = map statistics: outliers also count as "found" (MapPoint::IncreaseFound)
 //                     E4 = keyframe decision: outliers count as tracked close points (NeedNewKeyFrame)
-//                     E5 = inlier count: outliers count in mnMatchesInliers (tracking-OK test, KF ratio)
+//                     E5 = E5a + E5b
+//                     E5a = outliers count in the inlier number for the tracking-OK test only
+//                     E5b = outliers count in the inlier number for the keyframe decision only
+//                           (mnMatchesInliersKF in NeedNewKeyFrame)
 //                     E6 = frame-to-frame matching: last frame's outliers are still projected and
 //                          matched into the current frame (ORBmatcher::SearchByProjection)
 //                     e.g. DSLAM_IGNORE=E2   or   DSLAM_IGNORE=E1,E2,E3,E4,E5   (default: empty)
+//   DSLAM_KF_SEMANTIC 1 = in E4 / E5b, ignore an outlier label ONLY if the keypoint lies inside a
+//                         YOLO dynamic box (outliers on static scene parts still trigger keyframes).
+//                         Loads YOLO (YOLO is then used for the keyframe decision only).
+//                     0 = E4 / E5b ignore every outlier label           (default: 0)
 //   DSLAM_KERNEL      robust kernel in PoseOptimization                (default: huber)
 //                     huber  = ORB-SLAM3 default (delta^2 = 5.991 mono / 7.815 stereo)
 //                     cauchy = same deltas
@@ -78,14 +85,15 @@ struct DynamicConfig
     enum Labels { LABELS_OPT = 0, LABELS_RAW = 1, LABELS_NONE = 2 };
     Gate        gate       = GATE_WEIGHTED;
     Labels      labels     = LABELS_OPT;
-    bool        ignE1 = false, ignE2 = false, ignE3 = false, ignE4 = false, ignE5 = false, ignE6 = false;
+    bool        ignE1 = false, ignE2 = false, ignE3 = false, ignE4 = false, ignE5a = false, ignE5b = false, ignE6 = false;
+    bool        kfSemantic = false;   // DSLAM_KF_SEMANTIC=1
     Kernel      kernel     = KERNEL_HUBER;
     bool        mapFilter  = false;   // DSLAM_MAP_FILTER=1
 
     bool UseYOLO()     const { return mode == YOLO || mode == PROPOSED; }
     bool UseGeometry() const { return mode == GEO  || mode == PROPOSED; }
     bool UseWeighting()const { return mode != BASELINE; }
-    bool NeedYOLO()    const { return UseYOLO() || mapFilter; }
+    bool NeedYOLO()    const { return UseYOLO() || mapFilter || kfSemantic; }
 
     const char* GateName() const
     {
@@ -163,9 +171,12 @@ private:
             c.ignE2 = v.find(",E2,") != std::string::npos;
             c.ignE3 = v.find(",E3,") != std::string::npos;
             c.ignE4 = v.find(",E4,") != std::string::npos;
-            c.ignE5 = v.find(",E5,") != std::string::npos;
+            const bool e5 = v.find(",E5,") != std::string::npos;
+            c.ignE5a = e5 || v.find(",E5a,") != std::string::npos;
+            c.ignE5b = e5 || v.find(",E5b,") != std::string::npos;
             c.ignE6 = v.find(",E6,") != std::string::npos;
         }
+        if(const char* s = std::getenv("DSLAM_KF_SEMANTIC")) c.kfSemantic = std::atoi(s) != 0;
         if(const char* s = std::getenv("DSLAM_KERNEL"))
         {
             std::string k(s);
@@ -188,7 +199,8 @@ private:
                   << " kernel=" << c.KernelName()
                   << " labels=" << c.LabelsName()
                   << " ignore=" << (c.ignE1?"E1":"") << (c.ignE2?"E2":"") << (c.ignE3?"E3":"")
-                  << (c.ignE4?"E4":"") << (c.ignE5?"E5":"") << (c.ignE6?"E6":"")
+                  << (c.ignE4?"E4":"") << (c.ignE5a?"E5a":"") << (c.ignE5b?"E5b":"") << (c.ignE6?"E6":"")
+                  << " kf_semantic=" << c.kfSemantic
                   << " map_filter=" << c.mapFilter << std::endl;
         return c;
     }
