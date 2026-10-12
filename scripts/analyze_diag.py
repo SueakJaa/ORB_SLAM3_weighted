@@ -54,6 +54,10 @@ def main(paths):
         with open(path, newline="") as f:
             rows = []
             for r in csv.DictReader(f):
+                if None in r or any(v is None or v.strip() == '' for v in r.values()):
+                    continue  # skip incomplete lines
+                if None in r or any(v is None or v.strip() == '' for v in r.values()):
+                    continue  # skip incomplete lines
                 rr = {k: float(v) for k, v in r.items()}
                 for k in ("matched", "outliers", "outliers_in_box", "inliers_in_box", "new_mp",
                           "new_mp_in_box", "tracked_close", "nontracked_close"):
@@ -66,6 +70,10 @@ def main(paths):
 
         t0 = rows[0]["t"]
         print(f"\n=== {path}")
+        yf = [r["yolo_frac"] for r in rows]
+        print(f"  YOLO: keypoints in boxes mean {100*mean(yf):.1f} %, frames >= 5 %: {pct(sum(1 for v in yf if v >= 0.05), len(yf)):.1f} %, frames with any box: {pct(sum(1 for v in yf if v > 0), len(yf)):.1f} %")
+        yf = [r["yolo_frac"] for r in rows]
+        print(f"  YOLO: keypoints in boxes mean {100*mean(yf):.1f} %, frames >= 5 %: {pct(sum(1 for v in yf if v >= 0.05), len(yf)):.1f} %, frames with any box: {pct(sum(1 for v in yf if v > 0), len(yf)):.1f} %")
         block("all frames", rows)
         block(f"frames WITH people (yolo_frac >= {PEOPLE_FRAC})", [r for r in rows if r["yolo_frac"] >= PEOPLE_FRAC])
         block("frames WITHOUT people", [r for r in rows if r["yolo_frac"] < PEOPLE_FRAC])
