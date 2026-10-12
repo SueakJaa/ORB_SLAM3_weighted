@@ -72,21 +72,62 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
     if(verbose) std::cout << "[YOLO] Infer called" << std::endl;
 
     // ===== Preprocess =====
+    // Letterbox (YOLOv5 standard): resize keeping the aspect ratio, pad to 640x640 with grey 114.
+    // Stretching 640x480 to 640x640 instead distorts people so much that YOLOv5n's scores drop
+    // below the 0.4 threshold (checked: best person score 0.33 stretched vs 0.71 letterboxed).
+    const bool letterbox = ORB_SLAM3::DynamicConfig::Get().yoloLetterbox;
+    float scale = 1.0f, padX = 0.0f, padY = 0.0f;
+    cv::Mat input = image;
+    if(letterbox)
+    {
+        scale = std::min(640.0f / image.cols, 640.0f / image.rows);
+        const int nw = static_cast<int>(std::round(image.cols * scale));
+        const int nh = static_cast<int>(std::round(image.rows * scale));
+        const int px = (640 - nw) / 2;
+        const int py = (640 - nh) / 2;
+        padX = static_cast<float>(px);
+        padY = static_cast<float>(py);
+        cv::Mat resized;
+        if(nw != image.cols || nh != image.rows)
+            cv::resize(image, resized, cv::Size(nw, nh));
+        else
+            resized = image;
+        input = cv::Mat(640, 640, image.type(), cv::Scalar(114, 114, 114, 0));
+        resized.copyTo(input(cv::Rect(px, py, nw, nh)));
+    }
+
     cv::Mat blob;
-    cv::dnn::blobFromImage(image, blob, 1/255.0, cv::Size(640, 640), cv::Scalar(), true, false);
+    cv::dnn::blobFromImage(input, blob, 1/255.0, cv::Size(640, 640), cv::Scalar(), true, false);
     cv::Mat confMap(image.rows, image.cols, CV_32F, cv::Scalar(0));
     net.setInput(blob);
     cv::Mat output = net.forward();
 
     if(verbose) std::cout << "[YOLO] Output size: " << output.size << std::endl;
 
+    // The parser below expects the YOLOv5 layout [1, N, 85]. Warn once if the model differs
+    // (e.g. a YOLOv8-style export [1, 84, 8400]), instead of silently finding nothing.
+    static bool warned = false;
+    if(output.dims != 3 || output.size[2] != 85)
+    {
+        if(!warned)
+        {
+            std::cerr << "[YOLO] Unexpected output shape " << output.size
+                      << " (expected [1, N, 85], YOLOv5 export). No detections will be used." << std::endl;
+            warned = true;
+        }
+        mConfidenceMap = confMap.clone();
+        mnLastDetections = 0;
+        return cv::Mat(image.rows, image.cols, CV_8UC1, cv::Scalar(255));
+    }
+
     // ===== Create mask =====
     cv::Mat mask(image.rows, image.cols, CV_8UC1, cv::Scalar(255));
 
     float* data = (float*)output.data;
 
-    const int num_detections = 25200;
+    const int num_detections = output.size[1];
     const int num_classes = 80;
+    mnLastDetections = 0;
 
     const float confThreshold = ORB_SLAM3::DynamicConfig::Get().yoloConf;
     const float shrink = 0.8f;  // boxes shrunk to 80% before building the confidence map
@@ -135,16 +176,36 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
         float w  = data[2];
         float h  = data[3];
 
-        int x = (cx - w/2) * image.cols / 640.0;
-        int y = (cy - h/2) * image.rows / 640.0;
-        int width  = w * image.cols / 640.0;
-        int height = h * image.rows / 640.0;
+        int x, y, width, height;
+        if(letterbox)
+        {
+            // undo padding and scale
+            x = static_cast<int>((cx - w/2 - padX) / scale);
+            y = static_cast<int>((cy - h/2 - padY) / scale);
+            width  = static_cast<int>(w / scale);
+            height = static_cast<int>(h / scale);
+        }
+        else
+        {
+            x = (cx - w/2) * image.cols / 640.0;
+            y = (cy - h/2) * image.rows / 640.0;
+            width  = w * image.cols / 640.0;
+            height = h * image.rows / 640.0;
+        }
 
-        // clamp
+        // clamp (keep the far edge, cut what is outside the image)
+        int x2 = std::min(x + width,  image.cols);
+        int y2 = std::min(y + height, image.rows);
         x = std::max(0, x);
         y = std::max(0, y);
-        width = std::min(width, image.cols - x);
-        height = std::min(height, image.rows - y);
+        width  = x2 - x;
+        height = y2 - y;
+        if(width <= 0 || height <= 0)
+        {
+            data += 85;
+            continue;
+        }
+        mnLastDetections++;
 
         // ===== SHRINK =====
         int new_w = width * shrink;

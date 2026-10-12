@@ -15,6 +15,10 @@
 //   DSLAM_SECOND_OPT  1 = extra PoseOptimization after TrackLocalMap (old v3 behaviour)
 //                     0 = paper behaviour                  (default: 0)
 //   DSLAM_VERBOSE     1 = per-frame debug prints           (default: 0, keep 0 for timing)
+//   DSLAM_YOLO_LETTERBOX 1 = YOLOv5-style letterbox input (keep aspect ratio, pad with grey)
+//                     0 = stretch the image to 640x640 (v3-v12 behaviour; on 640x480 TUM frames
+//                         this lowers YOLOv5n confidence so much that nothing passes 0.4)
+//                                                          (default: 1)
 //   DSLAM_YOLO_GPU    1 = run YOLO on CUDA if OpenCV was built with CUDA (default: 1)
 //                     0 = force CPU
 //   DSLAM_CHI2_GATE   when and how PoseOptimization rejects outliers  (default: weighted)
@@ -56,6 +60,7 @@
 //   DSLAM_KF_SWITCH_MIN   fraction of keypoints inside boxes                (default: 0.05)
 //   DSLAM_KF_SWITCH_HOLD  frames the rule stays on after the last detection (default: 30)
 //   DSLAM_KF_MIN_GAP  N > 0 = at most one keyframe every N frames (plain rate cap)  (default: 0 = off)
+//                     With DSLAM_KF_SWITCH=1 the cap applies only while YOLO sees dynamic objects.
 //   DSLAM_DIAG        1 = write one CSV line per tracked frame to DSLAM_DIAG_FILE
 //                         (default diag_frames.csv): outliers, outliers inside YOLO boxes, keyframe
 //                         decision inputs, keyframe created, new map points inside/outside boxes.
@@ -91,6 +96,7 @@ struct DynamicConfig
     bool        secondOpt  = false;
     bool        verbose    = false;
     bool        yoloGpu    = true;
+    bool        yoloLetterbox = true; // DSLAM_YOLO_LETTERBOX
     enum Gate   { GATE_WEIGHTED = 0, GATE_RAW = 1, GATE_LATE = 2 };
     enum Kernel { KERNEL_HUBER = 0, KERNEL_CAUCHY = 1, KERNEL_WELSCH = 2 };
     enum Labels { LABELS_OPT = 0, LABELS_RAW = 1, LABELS_NONE = 2 };
@@ -163,6 +169,7 @@ private:
         if(const char* s = std::getenv("DSLAM_SECOND_OPT")) c.secondOpt = std::atoi(s) != 0;
         if(const char* s = std::getenv("DSLAM_VERBOSE"))    c.verbose   = std::atoi(s) != 0;
         if(const char* s = std::getenv("DSLAM_YOLO_GPU"))   c.yoloGpu   = std::atoi(s) != 0;
+        if(const char* s = std::getenv("DSLAM_YOLO_LETTERBOX")) c.yoloLetterbox = std::atoi(s) != 0;
         if(const char* s = std::getenv("DSLAM_CHI2_GATE"))
         {
             std::string g(s);
@@ -218,6 +225,7 @@ private:
                   << " second_opt=" << c.secondOpt
                   << " verbose=" << c.verbose
                   << " yolo_gpu=" << c.yoloGpu
+                  << " yolo_letterbox=" << c.yoloLetterbox
                   << " chi2_gate=" << c.GateName()
                   << " kernel=" << c.KernelName()
                   << " labels=" << c.LabelsName()

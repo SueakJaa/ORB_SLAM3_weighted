@@ -58,6 +58,7 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     mpYOLO = mbUseYOLO ? new YOLOdetector() : nullptr;
     mdYoloTimeTotal = 0.0;
     mnYoloFrames = 0;
+    mnYoloFramesWithDet = 0;
     // Load camera parameters from settings file
     if(settings)
     {
@@ -1571,6 +1572,7 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
         std::chrono::steady_clock::time_point tYolo1 = std::chrono::steady_clock::now();
         mdYoloTimeTotal += std::chrono::duration_cast<std::chrono::duration<double> >(tYolo1 - tYolo0).count();
         mnYoloFrames++;
+        if(mpYOLO->mnLastDetections > 0) mnYoloFramesWithDet++;
 
         if(!mask.empty())
         {
@@ -3351,8 +3353,10 @@ bool Tracking::NeedNewKeyFrame()
 
     // DSLAM_KF_MIN_GAP: plain keyframe-rate cap (at most one keyframe every N frames)
     {
-        const int gap = DynamicConfig::Get().kfMinGap;
-        if(gap > 0 && mCurrentFrame.mnId < mnLastKeyFrameId + static_cast<unsigned int>(gap))
+        const DynamicConfig& dc = DynamicConfig::Get();
+        const int gap = dc.kfMinGap;
+        const bool capActive = !dc.kfSwitch || mbKfRuleActive;   // with the switch: only while people are seen
+        if(gap > 0 && capActive && mCurrentFrame.mnId < mnLastKeyFrameId + static_cast<unsigned int>(gap))
             return false;
     }
 
@@ -4444,7 +4448,9 @@ void Tracking::PrintDynamicStats()
     std::cout << "[DynamicStats] mode=" << c.ModeName();
     if(mnYoloFrames > 0)
         std::cout << " yolo_frames=" << mnYoloFrames
-                  << " mean_yolo_time=" << mdYoloTimeTotal / mnYoloFrames << " s";
+                  << " mean_yolo_time=" << mdYoloTimeTotal / mnYoloFrames << " s"
+                  << " frames_with_detections=" << mnYoloFramesWithDet
+                  << " (" << 100.0 * mnYoloFramesWithDet / mnYoloFrames << " %)";
     std::cout << std::endl;
 }
 

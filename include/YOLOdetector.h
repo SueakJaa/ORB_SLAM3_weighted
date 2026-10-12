@@ -14,6 +14,7 @@ public:
     // return mask (important for your pipeline)
     cv::Mat Infer(const cv::Mat &image);
     cv::Mat mConfidenceMap;
+    int mnLastDetections = 0;   // dynamic-class boxes kept in the last Infer() call
 private:
     cv::dnn::Net net;   // the model
 };

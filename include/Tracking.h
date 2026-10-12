@@ -74,6 +74,7 @@ public:
     bool mbUseGeometry;
     double mdYoloTimeTotal;   // accumulated YOLO inference time [s]
     int    mnYoloFrames;
+    int    mnYoloFramesWithDet;
     void PrintDynamicStats();
 
     // Preprocess the input and call Track(). Extract features and performs stereo matching.
