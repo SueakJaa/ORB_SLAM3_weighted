@@ -49,6 +49,17 @@
 //                         YOLO dynamic box (outliers on static scene parts still trigger keyframes).
 //                         Loads YOLO (YOLO is then used for the keyframe decision only).
 //                     0 = E4 / E5b ignore every outlier label           (default: 0)
+//   DSLAM_KF_SWITCH   1 = the E4 / E5b rule is active only while YOLO sees dynamic objects:
+//                         on frames where at least DSLAM_KF_SWITCH_MIN of the keypoints lie in YOLO
+//                         boxes, and for DSLAM_KF_SWITCH_HOLD frames after the last such frame.
+//                         Otherwise the keyframe decision is plain ORB-SLAM3.   (default: 0)
+//   DSLAM_KF_SWITCH_MIN   fraction of keypoints inside boxes                (default: 0.05)
+//   DSLAM_KF_SWITCH_HOLD  frames the rule stays on after the last detection (default: 30)
+//   DSLAM_KF_MIN_GAP  N > 0 = at most one keyframe every N frames (plain rate cap)  (default: 0 = off)
+//   DSLAM_DIAG        1 = write one CSV line per tracked frame to DSLAM_DIAG_FILE
+//                         (default diag_frames.csv): outliers, outliers inside YOLO boxes, keyframe
+//                         decision inputs, keyframe created, new map points inside/outside boxes.
+//                         Loads YOLO (changes timing slightly; use for analysis, not for timing).
 //   DSLAM_KERNEL      robust kernel in PoseOptimization                (default: huber)
 //                     huber  = ORB-SLAM3 default (delta^2 = 5.991 mono / 7.815 stereo)
 //                     cauchy = same deltas
@@ -87,13 +98,19 @@ struct DynamicConfig
     Labels      labels     = LABELS_OPT;
     bool        ignE1 = false, ignE2 = false, ignE3 = false, ignE4 = false, ignE5a = false, ignE5b = false, ignE6 = false;
     bool        kfSemantic = false;   // DSLAM_KF_SEMANTIC=1
+    bool        kfSwitch   = false;   // DSLAM_KF_SWITCH=1
+    float       kfSwitchMin  = 0.05f;
+    int         kfSwitchHold = 30;
+    int         kfMinGap   = 0;       // DSLAM_KF_MIN_GAP
+    bool        diag       = false;   // DSLAM_DIAG=1
+    std::string diagFile   = "diag_frames.csv";
     Kernel      kernel     = KERNEL_HUBER;
     bool        mapFilter  = false;   // DSLAM_MAP_FILTER=1
 
     bool UseYOLO()     const { return mode == YOLO || mode == PROPOSED; }
     bool UseGeometry() const { return mode == GEO  || mode == PROPOSED; }
     bool UseWeighting()const { return mode != BASELINE; }
-    bool NeedYOLO()    const { return UseYOLO() || mapFilter || kfSemantic; }
+    bool NeedYOLO()    const { return UseYOLO() || mapFilter || kfSemantic || kfSwitch || diag; }
 
     const char* GateName() const
     {
@@ -177,6 +194,12 @@ private:
             c.ignE6 = v.find(",E6,") != std::string::npos;
         }
         if(const char* s = std::getenv("DSLAM_KF_SEMANTIC")) c.kfSemantic = std::atoi(s) != 0;
+        if(const char* s = std::getenv("DSLAM_KF_SWITCH"))      c.kfSwitch     = std::atoi(s) != 0;
+        if(const char* s = std::getenv("DSLAM_KF_SWITCH_MIN"))  c.kfSwitchMin  = std::stof(s);
+        if(const char* s = std::getenv("DSLAM_KF_SWITCH_HOLD")) c.kfSwitchHold = std::atoi(s);
+        if(const char* s = std::getenv("DSLAM_KF_MIN_GAP"))     c.kfMinGap     = std::atoi(s);
+        if(const char* s = std::getenv("DSLAM_DIAG"))           c.diag         = std::atoi(s) != 0;
+        if(const char* s = std::getenv("DSLAM_DIAG_FILE"))      c.diagFile     = s;
         if(const char* s = std::getenv("DSLAM_KERNEL"))
         {
             std::string k(s);
@@ -201,6 +224,9 @@ private:
                   << " ignore=" << (c.ignE1?"E1":"") << (c.ignE2?"E2":"") << (c.ignE3?"E3":"")
                   << (c.ignE4?"E4":"") << (c.ignE5a?"E5a":"") << (c.ignE5b?"E5b":"") << (c.ignE6?"E6":"")
                   << " kf_semantic=" << c.kfSemantic
+                  << " kf_switch=" << c.kfSwitch << "(" << c.kfSwitchMin << "," << c.kfSwitchHold << ")"
+                  << " kf_min_gap=" << c.kfMinGap
+                  << " diag=" << c.diag
                   << " map_filter=" << c.mapFilter << std::endl;
         return c;
     }

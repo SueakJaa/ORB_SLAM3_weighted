@@ -30,6 +30,7 @@
 #include "LoopClosing.h"
 #include "Frame.h"
 #include "YOLOdetector.h"
+#include <fstream>
 #include "ORBVocabulary.h"
 #include "KeyFrameDatabase.h"
 #include "ORBextractor.h"
@@ -323,6 +324,23 @@ protected:
     //Current matches in frame
     int mnMatchesInliers;
     int mnMatchesInliersKF = 0;   // inlier count used only by NeedNewKeyFrame (DSLAM_IGNORE=E5b)
+
+    // DSLAM_KF_SWITCH: is the E4/E5b rule active on the current frame?
+    bool mbKfRuleActive = true;
+    long mnLastDynFrameId = -1000000;
+    float mfYoloFrac = 0.0f;          // fraction of keypoints inside YOLO boxes (current frame)
+
+    // DSLAM_DIAG: per-frame statistics, written as one CSV line per tracked frame
+    struct DiagStats
+    {
+        int matched = 0, outliers = 0, outliersInBox = 0, inliersInBox = 0;
+        int refMatches = -1, trackedClose = -1, nonTrackedClose = -1;
+        int newMP = 0, newMPInBox = 0;
+        bool kfCreated = false;
+    };
+    DiagStats mDiag;
+    std::ofstream mDiagOut;
+    void WriteDiagLine(bool bNeedKF);
 
     //Last Frame, KeyFrame and Relocalisation Info
     KeyFrame* mpLastKeyFrame;

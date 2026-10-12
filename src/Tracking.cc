@@ -34,6 +34,7 @@
 
 #include <mutex>
 #include <chrono>
+#include <iomanip>
 
 
 using namespace std;
@@ -1591,6 +1592,26 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
         }
     }
 
+    // ===== DSLAM_KF_SWITCH / DSLAM_DIAG: per-frame state =====
+    {
+        const DynamicConfig& dc = DynamicConfig::Get();
+        mDiag = DiagStats();
+
+        int nIn = 0;
+        for(size_t i = 0; i < mCurrentFrame.mvbDynamic.size(); i++)
+            if(mCurrentFrame.mvbDynamic[i]) nIn++;
+        mfYoloFrac = mCurrentFrame.N > 0 ? static_cast<float>(nIn) / mCurrentFrame.N : 0.0f;
+
+        if(!dc.kfSwitch)
+            mbKfRuleActive = true;
+        else
+        {
+            if(mfYoloFrac >= dc.kfSwitchMin)
+                mnLastDynFrameId = static_cast<long>(mCurrentFrame.mnId);
+            mbKfRuleActive = (static_cast<long>(mCurrentFrame.mnId) - mnLastDynFrameId) <= dc.kfSwitchHold;
+        }
+    }
+
     // ===== CONTINUE =====
 
     mCurrentFrame.mNameFile = filename;
@@ -2302,6 +2323,9 @@ void Tracking::Track()
             if(bNeedKF && (bOK || (mInsertKFsLost && mState==RECENTLY_LOST &&
                                    (mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD))))
                 CreateNewKeyFrame();
+
+            if(DynamicConfig::Get().diag)
+                WriteDiagLine(bNeedKF);
 
 #ifdef REGISTER_TIMES
             std::chrono::steady_clock::time_point time_EndNewKF = std::chrono::steady_clock::now();
@@ -3246,8 +3270,18 @@ bool Tracking::TrackLocalMap()
 
             // keyframe decision (DSLAM_IGNORE=E5b: outliers count too;
             // with DSLAM_KF_SEMANTIC=1 only outliers inside a YOLO dynamic box)
-            if(bCounts && (!bOut || (dc.ignE5b && (!dc.kfSemantic || mCurrentFrame.IsDynamic(i)))))
+            if(bCounts && (!bOut || (dc.ignE5b && mbKfRuleActive && (!dc.kfSemantic || mCurrentFrame.IsDynamic(i)))))
                 mnMatchesInliersKF++;
+
+            // DSLAM_DIAG statistics
+            mDiag.matched++;
+            if(bOut)
+            {
+                mDiag.outliers++;
+                if(mCurrentFrame.IsDynamic(i)) mDiag.outliersInBox++;
+            }
+            else if(mCurrentFrame.IsDynamic(i))
+                mDiag.inliersInBox++;
 
             if(bOut && mSensor==System::STEREO)
                 mCurrentFrame.mvpMapPoints[i] = static_cast<MapPoint*>(NULL);
@@ -3315,6 +3349,13 @@ bool Tracking::NeedNewKeyFrame()
         return false;
     }
 
+    // DSLAM_KF_MIN_GAP: plain keyframe-rate cap (at most one keyframe every N frames)
+    {
+        const int gap = DynamicConfig::Get().kfMinGap;
+        if(gap > 0 && mCurrentFrame.mnId < mnLastKeyFrameId + static_cast<unsigned int>(gap))
+            return false;
+    }
+
     const int nKFs = mpAtlas->KeyFramesInMap();
 
     // Do not insert keyframes if not enough frames have passed from last relocalisation
@@ -3346,7 +3387,7 @@ bool Tracking::NeedNewKeyFrame()
                 const DynamicConfig& dc = DynamicConfig::Get();
                 // DSLAM_IGNORE=E4: outliers count as tracked close points
                 // (with DSLAM_KF_SEMANTIC=1 only outliers inside a YOLO dynamic box)
-                const bool bOutIgnored = dc.ignE4 && (!dc.kfSemantic || mCurrentFrame.IsDynamic(i));
+                const bool bOutIgnored = dc.ignE4 && mbKfRuleActive && (!dc.kfSemantic || mCurrentFrame.IsDynamic(i));
                 if(mCurrentFrame.mvpMapPoints[i] && (!mCurrentFrame.mvbOutlier[i] || bOutIgnored))
                     nTrackedClose++;
                 else
@@ -3356,6 +3397,10 @@ bool Tracking::NeedNewKeyFrame()
         }
         //Verbose::PrintMess("[NEEDNEWKF]-> closed points: " + to_string(nTrackedClose) + "; non tracked closed points: " + to_string(nNonTrackedClose), Verbose::VERBOSITY_NORMAL);// Verbose::VERBOSITY_DEBUG);
     }
+
+    mDiag.refMatches = nRefMatches;
+    mDiag.trackedClose = nTrackedClose;
+    mDiag.nonTrackedClose = nNonTrackedClose;
 
     bool bNeedToInsertClose;
     bNeedToInsertClose = (nTrackedClose<100) && (nNonTrackedClose>70);
@@ -3449,6 +3494,7 @@ bool Tracking::NeedNewKeyFrame()
 
 void Tracking::CreateNewKeyFrame()
 {
+    mDiag.kfCreated = true;
     if(mpLocalMapper->IsInitializing() && !mpAtlas->isImuInitialized())
         return;
 
@@ -3554,6 +3600,8 @@ void Tracking::CreateNewKeyFrame()
 
                     mCurrentFrame.mvpMapPoints[i]=pNewMP;
                     nPoints++;
+                    mDiag.newMP++;
+                    if(mCurrentFrame.IsDynamic(i)) mDiag.newMPInBox++;
                 }
                 else
                 {
@@ -4399,4 +4447,23 @@ void Tracking::PrintDynamicStats()
                   << " mean_yolo_time=" << mdYoloTimeTotal / mnYoloFrames << " s";
     std::cout << std::endl;
 }
+
+void Tracking::WriteDiagLine(bool bNeedKF)
+{
+    if(!mDiagOut.is_open())
+    {
+        mDiagOut.open(DynamicConfig::Get().diagFile);
+        mDiagOut << "frame,t,state,yolo_frac,kf_rule_active,matched,outliers,outliers_in_box,"
+                    "inliers_in_box,inliers_track,inliers_kf,ref_matches,tracked_close,"
+                    "nontracked_close,need_kf,kf_created,new_mp,new_mp_in_box\n";
+    }
+    mDiagOut << mCurrentFrame.mnId << ',' << std::fixed << std::setprecision(6) << mCurrentFrame.mTimeStamp << ','
+             << static_cast<int>(mState) << ',' << std::setprecision(3) << mfYoloFrac << ','
+             << mbKfRuleActive << ',' << mDiag.matched << ',' << mDiag.outliers << ','
+             << mDiag.outliersInBox << ',' << mDiag.inliersInBox << ',' << mnMatchesInliers << ','
+             << mnMatchesInliersKF << ',' << mDiag.refMatches << ',' << mDiag.trackedClose << ','
+             << mDiag.nonTrackedClose << ',' << bNeedKF << ',' << mDiag.kfCreated << ','
+             << mDiag.newMP << ',' << mDiag.newMPInBox << '\n';
+}
+
 } //namespace ORB_SLAM
