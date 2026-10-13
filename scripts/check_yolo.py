@@ -33,6 +33,36 @@ def cpp_style_parse(out):
     return n_rows, obj.max(), int(keep.sum()), int(dyn.sum()), rows[dyn]
 
 
+ANCHORS = {8: [(10, 13), (16, 30), (33, 23)], 16: [(30, 61), (62, 45), (59, 119)],
+           32: [(116, 90), (156, 198), (373, 326)]}
+
+
+def run_net(net, blob):
+    """All outputs -> decoded [N, 85] rows, same as the C++ code (decoded output, or raw heads)."""
+    net.setInput(blob)
+    outs = net.forward(net.getUnconnectedOutLayersNames())
+    for o in outs:
+        if o.ndim == 3 and o.shape[2] == 85:
+            return o.reshape(-1, 85), [o.shape for o in outs]
+    rows = []
+    for o in outs:
+        if o.ndim != 5 or o.shape[1] != 3 or o.shape[4] != 85:
+            continue
+        ny, nx = o.shape[2], o.shape[3]
+        stride = 640 // nx
+        y = 1 / (1 + np.exp(-o[0]))
+        gy, gx = np.meshgrid(np.arange(ny), np.arange(nx), indexing="ij")
+        d = y.copy()
+        for a in range(3):
+            aw, ah = ANCHORS[stride][a]
+            d[a, ..., 0] = (y[a, ..., 0] * 2 - 0.5 + gx) * stride
+            d[a, ..., 1] = (y[a, ..., 1] * 2 - 0.5 + gy) * stride
+            d[a, ..., 2] = (y[a, ..., 2] * 2) ** 2 * aw
+            d[a, ..., 3] = (y[a, ..., 3] * 2) ** 2 * ah
+        rows.append(d.reshape(-1, 85))
+    return (np.concatenate(rows) if rows else np.zeros((0, 85), np.float32)), [o.shape for o in outs]
+
+
 def letterbox(img):
     """Same as the new C++ code: keep aspect ratio, pad to 640x640 with grey 114."""
     h, w = img.shape[:2]
@@ -64,14 +94,15 @@ def main(model_path, seq_dir):
         img = cv2.imread(os.path.join(seq_dir, names[k]), cv2.IMREAD_UNCHANGED)
         h_img, w_img = img.shape[:2]
         # (a) old C++ pre-processing: stretch to 640x640
-        net.setInput(cv2.dnn.blobFromImage(img, 1 / 255.0, (640, 640), swapRB=True, crop=False))
-        out = net.forward()
+        out, shapes = run_net(net, cv2.dnn.blobFromImage(img, 1 / 255.0, (640, 640), swapRB=True, crop=False))
         n_rows, obj_max, _, n_dyn_s, _ = cpp_style_parse(out)
         # (b) new C++ pre-processing: letterbox
         lb, scale, px, py = letterbox(img)
-        net.setInput(cv2.dnn.blobFromImage(lb, 1 / 255.0, (640, 640), swapRB=True, crop=False))
-        n_rows, obj_max_l, _, n_dyn_l, rows_l = cpp_style_parse(net.forward())
-        line = (f"frame {k:4d}  output {tuple(out.shape)}"
+        out_l, _ = run_net(net, cv2.dnn.blobFromImage(lb, 1 / 255.0, (640, 640), swapRB=True, crop=False))
+        n_rows, obj_max_l, _, n_dyn_l, rows_l = cpp_style_parse(out_l)
+        if k == picks[0]:
+            print("model outputs:", shapes)
+        line = (f"frame {k:4d}"
                 f"  STRETCH max obj {obj_max:.2f} dynamic boxes {n_dyn_s:3d}"
                 f"  | LETTERBOX max obj {obj_max_l:.2f} dynamic boxes {n_dyn_l:3d}")
         if n_dyn_l:
@@ -85,9 +116,8 @@ def main(model_path, seq_dir):
         print(line)
 
     print("\nWhat to look for:")
-    print("  output shape (1, 25200, 85)  -> layout matches the C++ code")
-    print("  output shape (1, 84, 8400)   -> YOLOv8-style export: C++ parsing is wrong for this model")
-    print("  max obj_conf < 0.4 everywhere -> model never confident enough (bad export or wrong input)")
+    print("  model outputs (1, 25200, 85) or three (1, 3, ny, nx, 85) -> both handled by the C++ code (v14)")
+    print("  max obj must be between 0 and 1 (it is a probability after decoding)")
     print("  STRETCH 0 boxes but LETTERBOX > 0  -> confirms the pre-processing bug fixed in v13")
     print("  check_yolo_frame*.png             -> red boxes (letterbox) should sit on the people")
 

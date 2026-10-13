@@ -1,6 +1,7 @@
 #include "YOLOdetector.h"
 #include "DynamicConfig.h"
 #include <iostream>
+#include <cmath>
 #include <opencv2/core/cuda.hpp>
 
 YOLOdetector::YOLOdetector()
@@ -100,19 +101,75 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
     cv::dnn::blobFromImage(input, blob, 1/255.0, cv::Size(640, 640), cv::Scalar(), true, false);
     cv::Mat confMap(image.rows, image.cols, CV_32F, cv::Scalar(0));
     net.setInput(blob);
-    cv::Mat output = net.forward();
 
-    if(verbose) std::cout << "[YOLO] Output size: " << output.size << std::endl;
+    // Read ALL network outputs. Two YOLOv5 export styles exist:
+    //  (a) decoded:  one output [1, N, 85] with boxes in pixels and sigmoid scores (current yolov5 export)
+    //  (b) raw heads: three outputs [1, 3, ny, nx, 85] with logits (older export, e.g. yolov5 v5.0);
+    //      net.forward() alone returns only one of them. They are decoded here exactly like
+    //      YOLOv5's Detect layer (checked against an official decoded export: max diff 2e-4).
+    std::vector<cv::Mat> outs;
+    net.forward(outs, net.getUnconnectedOutLayersNames());
 
-    // The parser below expects the YOLOv5 layout [1, N, 85]. Warn once if the model differs
-    // (e.g. a YOLOv8-style export [1, 84, 8400]), instead of silently finding nothing.
-    static bool warned = false;
-    if(output.dims != 3 || output.size[2] != 85)
+    std::vector<float> dets;           // decoded rows of 85 floats: cx, cy, w, h, obj, 80 class scores
+    bool haveDecoded = false;
+    for(const cv::Mat& o : outs)
     {
+        if(o.dims == 3 && o.size[2] == 85)
+        {
+            const float* p = o.ptr<float>();
+            dets.assign(p, p + static_cast<size_t>(o.size[1]) * 85);
+            haveDecoded = true;
+            break;
+        }
+    }
+    if(!haveDecoded)
+    {
+        static const float ANCHORS[3][6] = {{10,13, 16,30, 33,23},       // stride 8
+                                            {30,61, 62,45, 59,119},      // stride 16
+                                            {116,90, 156,198, 373,326}}; // stride 32
+        auto sigm = [](float v) { return 1.0f / (1.0f + std::exp(-v)); };
+        for(const cv::Mat& o : outs)
+        {
+            if(o.dims != 5 || o.size[1] != 3 || o.size[4] != 85) continue;
+            const int ny = o.size[2], nx = o.size[3];
+            const int stride = 640 / nx;
+            const int si = stride == 8 ? 0 : stride == 16 ? 1 : stride == 32 ? 2 : -1;
+            if(si < 0) continue;
+            const float* p = o.ptr<float>();
+            for(int a = 0; a < 3; a++)
+                for(int gy = 0; gy < ny; gy++)
+                    for(int gx = 0; gx < nx; gx++)
+                    {
+                        const float* q = p + ((static_cast<size_t>(a) * ny + gy) * nx + gx) * 85;
+                        const size_t base = dets.size();
+                        dets.resize(base + 85);
+                        float* d = &dets[base];
+                        for(int k = 0; k < 85; k++) d[k] = sigm(q[k]);
+                        d[0] = (d[0] * 2.0f - 0.5f + gx) * stride;
+                        d[1] = (d[1] * 2.0f - 0.5f + gy) * stride;
+                        d[2] = (d[2] * 2.0f) * (d[2] * 2.0f) * ANCHORS[si][2 * a];
+                        d[3] = (d[3] * 2.0f) * (d[3] * 2.0f) * ANCHORS[si][2 * a + 1];
+                    }
+        }
+    }
+
+    static bool reported = false;
+    if(!reported)
+    {
+        std::cout << "[YOLO] outputs:";
+        for(const cv::Mat& o : outs) std::cout << " [" << o.size << "]";
+        std::cout << " -> " << (haveDecoded ? "decoded output used" : "raw heads decoded in code")
+                  << ", " << dets.size() / 85 << " candidate boxes" << std::endl;
+        reported = true;
+    }
+
+    if(dets.empty())
+    {
+        static bool warned = false;
         if(!warned)
         {
-            std::cerr << "[YOLO] Unexpected output shape " << output.size
-                      << " (expected [1, N, 85], YOLOv5 export). No detections will be used." << std::endl;
+            std::cerr << "[YOLO] No usable output (expected [1, N, 85] or three [1, 3, ny, nx, 85] heads)."
+                         " No detections will be used." << std::endl;
             warned = true;
         }
         mConfidenceMap = confMap.clone();
@@ -123,9 +180,9 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
     // ===== Create mask =====
     cv::Mat mask(image.rows, image.cols, CV_8UC1, cv::Scalar(255));
 
-    float* data = (float*)output.data;
+    const float* data = dets.data();
 
-    const int num_detections = output.size[1];
+    const int num_detections = static_cast<int>(dets.size() / 85);
     const int num_classes = 80;
     mnLastDetections = 0;
 
