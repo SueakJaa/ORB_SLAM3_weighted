@@ -1608,7 +1608,11 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
             mbKfRuleActive = true;
         else
         {
-            if(mfYoloFrac >= dc.kfSwitchMin)
+            const bool bHit = mfYoloFrac >= dc.kfSwitchMin;
+            mnDynStreak = bHit ? mnDynStreak + 1 : 0;
+            // without the geometric check the switch fires here; with it, it fires in TrackLocalMap
+            // once the pose optimisation has said whether the points inside the boxes really move
+            if(bHit && mnDynStreak >= dc.kfSwitchPersist && dc.kfSwitchGeo <= 0.0f)
                 mnLastDynFrameId = static_cast<long>(mCurrentFrame.mnId);
             mbKfRuleActive = (static_cast<long>(mCurrentFrame.mnId) - mnLastDynFrameId) <= dc.kfSwitchHold;
         }
@@ -2318,6 +2322,8 @@ void Tracking::Track()
 #ifdef REGISTER_TIMES
             std::chrono::steady_clock::time_point time_StartNewKF = std::chrono::steady_clock::now();
 #endif
+            mnSwFrames++;
+            if(DynamicConfig::Get().kfSwitch && mbKfRuleActive) mnSwActive++;
             bool bNeedKF = NeedNewKeyFrame();
 
             // Check if we need to insert a new keyframe
@@ -3287,6 +3293,26 @@ bool Tracking::TrackLocalMap()
 
             if(bOut && mSensor==System::STEREO)
                 mCurrentFrame.mvpMapPoints[i] = static_cast<MapPoint*>(NULL);
+        }
+    }
+
+    // DSLAM_KF_SWITCH_GEO: semantic + geometric switch. YOLO says "person", and the pose
+    // optimisation must agree that the map points inside the boxes do not fit the camera motion
+    // (people who walk) - false detections on static objects have inliers inside the box.
+    {
+        const DynamicConfig& dc = DynamicConfig::Get();
+        const int nBox = mDiag.outliersInBox + mDiag.inliersInBox;
+        const int nOut = mDiag.matched - nBox;
+        mfBoxOutlierRatio = nBox >= dc.kfSwitchGeoPts ? static_cast<float>(mDiag.outliersInBox) / nBox : -1.0f;
+        if(dc.kfSwitch && dc.kfSwitchGeo > 0.0f && mfYoloFrac >= dc.kfSwitchMin &&
+           mnDynStreak >= dc.kfSwitchPersist && mfBoxOutlierRatio >= 0.0f)
+        {
+            const float rOut = nOut > 0 ? static_cast<float>(mDiag.outliers - mDiag.outliersInBox) / nOut : 0.0f;
+            if(mfBoxOutlierRatio >= dc.kfSwitchGeo && mfBoxOutlierRatio >= rOut + dc.kfSwitchGeoRel)
+            {
+                mnLastDynFrameId = static_cast<long>(mCurrentFrame.mnId);
+                mbKfRuleActive = true;
+            }
         }
     }
 
@@ -4451,6 +4477,9 @@ void Tracking::PrintDynamicStats()
                   << " mean_yolo_time=" << mdYoloTimeTotal / mnYoloFrames << " s"
                   << " frames_with_detections=" << mnYoloFramesWithDet
                   << " (" << 100.0 * mnYoloFramesWithDet / mnYoloFrames << " %)";
+    if(c.kfSwitch && mnSwFrames > 0)
+        std::cout << " switch_on_frames=" << mnSwActive
+                  << " (" << 100.0 * mnSwActive / mnSwFrames << " %)";
     std::cout << std::endl;
 }
 

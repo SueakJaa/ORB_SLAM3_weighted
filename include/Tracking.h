@@ -75,6 +75,8 @@ public:
     double mdYoloTimeTotal;   // accumulated YOLO inference time [s]
     int    mnYoloFrames;
     int    mnYoloFramesWithDet;
+    long   mnSwFrames = 0;   // frames that reached the keyframe decision
+    long   mnSwActive = 0;   // ... of which with the switch on
     void PrintDynamicStats();
 
     // Preprocess the input and call Track(). Extract features and performs stereo matching.
@@ -329,6 +331,8 @@ protected:
     // DSLAM_KF_SWITCH: is the E4/E5b rule active on the current frame?
     bool mbKfRuleActive = true;
     long mnLastDynFrameId = -1000000;
+    int   mnDynStreak = 0;            // consecutive frames with YOLO boxes (DSLAM_KF_SWITCH_PERSIST)
+    float mfBoxOutlierRatio = -1.0f;  // outlier ratio of matched map points inside boxes (-1 = too few)
     float mfYoloFrac = 0.0f;          // fraction of keypoints inside YOLO boxes (current frame)
 
     // DSLAM_DIAG: per-frame statistics, written as one CSV line per tracked frame

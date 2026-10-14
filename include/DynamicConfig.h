@@ -79,6 +79,7 @@
 
 #include <cstdlib>
 #include <string>
+#include <algorithm>
 #include <iostream>
 
 namespace ORB_SLAM3
@@ -107,6 +108,10 @@ struct DynamicConfig
     bool        kfSwitch   = false;   // DSLAM_KF_SWITCH=1
     float       kfSwitchMin  = 0.05f;
     int         kfSwitchHold = 30;
+    int         kfSwitchPersist = 1;     // DSLAM_KF_SWITCH_PERSIST: YOLO must fire k frames in a row
+    float       kfSwitchGeo     = 0.0f;  // DSLAM_KF_SWITCH_GEO: min outlier ratio inside boxes (0 = off)
+    float       kfSwitchGeoRel  = 0.0f;  // DSLAM_KF_SWITCH_GEO_REL: and at least this much above the ratio outside
+    int         kfSwitchGeoPts  = 10;    // DSLAM_KF_SWITCH_GEO_PTS: min matched map points inside boxes
     int         kfMinGap   = 0;       // DSLAM_KF_MIN_GAP
     bool        diag       = false;   // DSLAM_DIAG=1
     std::string diagFile   = "diag_frames.csv";
@@ -204,6 +209,10 @@ private:
         if(const char* s = std::getenv("DSLAM_KF_SWITCH"))      c.kfSwitch     = std::atoi(s) != 0;
         if(const char* s = std::getenv("DSLAM_KF_SWITCH_MIN"))  c.kfSwitchMin  = std::stof(s);
         if(const char* s = std::getenv("DSLAM_KF_SWITCH_HOLD")) c.kfSwitchHold = std::atoi(s);
+        if(const char* s = std::getenv("DSLAM_KF_SWITCH_PERSIST")) c.kfSwitchPersist = std::max(1, std::atoi(s));
+        if(const char* s = std::getenv("DSLAM_KF_SWITCH_GEO"))     c.kfSwitchGeo     = std::stof(s);
+        if(const char* s = std::getenv("DSLAM_KF_SWITCH_GEO_REL")) c.kfSwitchGeoRel  = std::stof(s);
+        if(const char* s = std::getenv("DSLAM_KF_SWITCH_GEO_PTS")) c.kfSwitchGeoPts  = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_KF_MIN_GAP"))     c.kfMinGap     = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_DIAG"))           c.diag         = std::atoi(s) != 0;
         if(const char* s = std::getenv("DSLAM_DIAG_FILE"))      c.diagFile     = s;
@@ -232,7 +241,9 @@ private:
                   << " ignore=" << (c.ignE1?"E1":"") << (c.ignE2?"E2":"") << (c.ignE3?"E3":"")
                   << (c.ignE4?"E4":"") << (c.ignE5a?"E5a":"") << (c.ignE5b?"E5b":"") << (c.ignE6?"E6":"")
                   << " kf_semantic=" << c.kfSemantic
-                  << " kf_switch=" << c.kfSwitch << "(" << c.kfSwitchMin << "," << c.kfSwitchHold << ")"
+                  << " kf_switch=" << c.kfSwitch << "(" << c.kfSwitchMin << "," << c.kfSwitchHold
+                  << ",persist=" << c.kfSwitchPersist << ",geo=" << c.kfSwitchGeo << ",geo_rel=" << c.kfSwitchGeoRel
+                  << ",geo_pts=" << c.kfSwitchGeoPts << ")"
                   << " kf_min_gap=" << c.kfMinGap
                   << " diag=" << c.diag
                   << " map_filter=" << c.mapFilter << std::endl;
