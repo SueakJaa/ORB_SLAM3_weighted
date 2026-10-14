@@ -1612,7 +1612,12 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
             mnDynStreak = bHit ? mnDynStreak + 1 : 0;
             // without the geometric check the switch fires here; with it, it fires in TrackLocalMap
             // once the pose optimisation has said whether the points inside the boxes really move
-            if(bHit && mnDynStreak >= dc.kfSwitchPersist && dc.kfSwitchGeo <= 0.0f)
+            // DSLAM_KF_SWITCH_GEO_KEEP (hysteresis): geometry is needed to switch ON; once confirmed,
+            // YOLO alone keeps it on for kfSwitchGeoKeep frames (people do not stop being people when
+            // the camera rotates fast and the outlier contrast inside/outside the box drops)
+            const bool bGeoRecent = dc.kfSwitchGeoKeep > 0 &&
+                (static_cast<long>(mCurrentFrame.mnId) - mnLastGeoFrameId) <= dc.kfSwitchGeoKeep;
+            if(bHit && mnDynStreak >= dc.kfSwitchPersist && (dc.kfSwitchGeo <= 0.0f || bGeoRecent))
                 mnLastDynFrameId = static_cast<long>(mCurrentFrame.mnId);
             mbKfRuleActive = (static_cast<long>(mCurrentFrame.mnId) - mnLastDynFrameId) <= dc.kfSwitchHold;
         }
@@ -3311,6 +3316,7 @@ bool Tracking::TrackLocalMap()
             if(mfBoxOutlierRatio >= dc.kfSwitchGeo && mfBoxOutlierRatio >= rOut + dc.kfSwitchGeoRel)
             {
                 mnLastDynFrameId = static_cast<long>(mCurrentFrame.mnId);
+                mnLastGeoFrameId = mnLastDynFrameId;
                 mbKfRuleActive = true;
             }
         }

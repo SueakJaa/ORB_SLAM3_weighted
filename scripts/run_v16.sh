@@ -9,6 +9,8 @@
 #                               A false detection on a chair has inliers inside its box.
 #   DSLAM_KF_SWITCH_GEO_REL=d   ... and the ratio inside must be at least d above the ratio outside
 #   DSLAM_KF_SWITCH_GEO_PTS=n   need at least n matched points inside the boxes (default 10)
+#   DSLAM_KF_SWITCH_GEO_KEEP=N  (v17) hysteresis: geometry switches ON, then YOLO alone keeps it on
+#                               for N frames after the last confirmation (variant GEOK_G10, GEO_KEEP)
 #
 # Two phases:
 #   PHASE=diag  (default, ~20 min)  1 run per sequence with per-frame CSVs, for A0 and SW_G10.
@@ -27,6 +29,7 @@ DATA_ROOT="${DATA_ROOT:-$HOME/datasets}"
 FAIL_TH="${FAIL_TH:-0.1}"
 GEO_R="${GEO_R:-0.5}"
 GEO_REL="${GEO_REL:-0.2}"
+GEO_KEEP="${GEO_KEEP:-90}"
 DEF_SEQS="walking_xyz walking_static walking_halfsphere sitting_static freiburg1_room freiburg1_desk freiburg1_desk2"
 
 # name|extra environment (KF_SWITCH, KF_MIN_GAP, DIAG and switch options)
@@ -48,6 +51,7 @@ else
     "SW_P3|DSLAM_KF_SWITCH=1 DSLAM_KF_MIN_GAP=10 DSLAM_KF_SWITCH_PERSIST=3"
     "SW_C6|DSLAM_KF_SWITCH=1 DSLAM_KF_MIN_GAP=10 DSLAM_YOLO_CONF=0.6"
     "GEO_G10|DSLAM_KF_SWITCH=1 DSLAM_KF_MIN_GAP=10 DSLAM_KF_SWITCH_GEO=$GEO_R DSLAM_KF_SWITCH_GEO_REL=$GEO_REL"
+    "GEOK_G10|DSLAM_KF_SWITCH=1 DSLAM_KF_MIN_GAP=10 DSLAM_KF_SWITCH_GEO=$GEO_R DSLAM_KF_SWITCH_GEO_REL=$GEO_REL DSLAM_KF_SWITCH_GEO_KEEP=$GEO_KEEP"
   )
 fi
 
