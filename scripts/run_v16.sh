@@ -16,7 +16,8 @@
 #   PHASE=diag  (default, ~20 min)  1 run per sequence with per-frame CSVs, for A0 and SW_G10.
 #               Then:  python3 scripts/geo_switch_sim.py results_v16_diag
 #               which simulates the switch options offline and suggests thresholds.
-#   PHASE=eval  10 runs of A0, SW_G10, SW_P3 (persist 3), SW_C6 (YOLO conf 0.6), GEO_G10 (geometric)
+#   PHASE=eval  A0_YOLO = plain ORB-SLAM3 with YOLO running but unused (control for YOLO's run time)
+#               10 runs of A0, SW_G10, SW_P3 (persist 3), SW_C6 (YOLO conf 0.6), GEO_G10 (geometric)
 #               GEO_R / GEO_REL set the geometric thresholds (defaults 0.5 / 0.2).
 #
 # Usage (from ~/ORB_SLAM3):
@@ -47,6 +48,7 @@ else
   ROOT="${ROOT:-$HOME/ORB_SLAM3/results_v16}"
   VARIANTS=(
     "A0_orbslam3|DSLAM_KF_SWITCH=0 DSLAM_KF_MIN_GAP=0"
+    "A0_YOLO|DSLAM_KF_SWITCH=1 DSLAM_KF_MIN_GAP=0"
     "SW_G10|DSLAM_KF_SWITCH=1 DSLAM_KF_MIN_GAP=10"
     "SW_P3|DSLAM_KF_SWITCH=1 DSLAM_KF_MIN_GAP=10 DSLAM_KF_SWITCH_PERSIST=3"
     "SW_C6|DSLAM_KF_SWITCH=1 DSLAM_KF_MIN_GAP=10 DSLAM_YOLO_CONF=0.6"
