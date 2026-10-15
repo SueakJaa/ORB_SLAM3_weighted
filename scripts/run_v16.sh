@@ -94,20 +94,23 @@ done
 
 echo; echo "===== SUMMARY (ATE RMSE, m; fail = run with RMSE > $FAIL_TH) ====="
 for SEQ in $SEQS; do
-  for F in $(ls $ROOT/$SEQ/*_1.eval 2>/dev/null); do
-    V=$(basename "$F" _1.eval)
+  # variants from all .eval files (not only run 1, so a crashed first run does not hide a variant)
+  for V in $(ls $ROOT/$SEQ/*.eval 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/_[0-9]*\.eval$//' | sort -u); do
     grep -h rmse $ROOT/$SEQ/${V}_*.eval | awk '{print $2}' | sort -g | awk -v s=$SEQ -v v=$V -v th=$FAIL_TH '
       {x[NR]=$1; t+=$1; if($1>th) f++}
       END {mu=t/NR; for(i=1;i<=NR;i++) d+=(x[i]-mu)^2; sd=(NR>1)?sqrt(d/(NR-1)):0;
            med=(NR%2)?x[(NR+1)/2]:(x[NR/2]+x[NR/2+1])/2;
            printf "%-22s %-12s n=%-2d mean=%.4f  median=%.4f  std=%.4f  fail=%d/%d\n", s, v, NR, mu, med, sd, f+0, NR}'
+    NLOG=$(ls $ROOT/$SEQ/${V}_*.log 2>/dev/null | grep -c '_[0-9]*\.log$')
+    NEV=$(ls $ROOT/$SEQ/${V}_*.eval 2>/dev/null | wc -l)
+    [ "$NLOG" -gt "$NEV" ] && echo "    !! $((NLOG-NEV)) run(s) of $V crashed (no trajectory) - see the .log files"
   done
 done
 
 echo; echo "===== KEYFRAMES (mean per run) and SWITCH (share of frames with the cap switched on) ====="
 for SEQ in $SEQS; do
-  for F in $(ls $ROOT/$SEQ/*_1.eval 2>/dev/null); do
-    V=$(basename "$F" _1.eval)
+  # variants from all .eval files (not only run 1, so a crashed first run does not hide a variant)
+  for V in $(ls $ROOT/$SEQ/*.eval 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/_[0-9]*\.eval$//' | sort -u); do
     KF=$(for K in $ROOT/$SEQ/${V}_*_kf.txt; do [ -f "$K" ] && wc -l < "$K"; done | awk '{t+=$1; n++} END {if(n) printf "%.1f", t/n}')
     SWON=$(grep -h "switch_on_frames" $ROOT/$SEQ/${V}_*.log 2>/dev/null | \
       sed 's/.*switch_on_frames=[0-9]* (\([0-9.]*\) %).*/\1/' | awk '{t+=$1; n++} END {if(n) printf "%.1f %%", t/n; else printf "-"}')
