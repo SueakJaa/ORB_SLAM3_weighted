@@ -1615,8 +1615,14 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
             // DSLAM_KF_SWITCH_GEO_KEEP (hysteresis): geometry is needed to switch ON; once confirmed,
             // YOLO alone keeps it on for kfSwitchGeoKeep frames (people do not stop being people when
             // the camera rotates fast and the outlier contrast inside/outside the box drops)
+            // ... and only after kfSwitchGeoMinConf confirmations inside that window, so a single
+            // false confirmation in a static room does not lock the cap on for the whole hold
+            const long id = static_cast<long>(mCurrentFrame.mnId);
+            while(!mdGeoConfFrames.empty() && id - mdGeoConfFrames.front() > dc.kfSwitchGeoKeep)
+                mdGeoConfFrames.pop_front();
             const bool bGeoRecent = dc.kfSwitchGeoKeep > 0 &&
-                (static_cast<long>(mCurrentFrame.mnId) - mnLastGeoFrameId) <= dc.kfSwitchGeoKeep;
+                (id - mnLastGeoFrameId) <= dc.kfSwitchGeoKeep &&
+                static_cast<int>(mdGeoConfFrames.size()) >= dc.kfSwitchGeoMinConf;
             if(bHit && mnDynStreak >= dc.kfSwitchPersist && (dc.kfSwitchGeo <= 0.0f || bGeoRecent))
                 mnLastDynFrameId = static_cast<long>(mCurrentFrame.mnId);
             mbKfRuleActive = (static_cast<long>(mCurrentFrame.mnId) - mnLastDynFrameId) <= dc.kfSwitchHold;
@@ -3317,6 +3323,7 @@ bool Tracking::TrackLocalMap()
             {
                 mnLastDynFrameId = static_cast<long>(mCurrentFrame.mnId);
                 mnLastGeoFrameId = mnLastDynFrameId;
+                mdGeoConfFrames.push_back(mnLastGeoFrameId);
                 mbKfRuleActive = true;
             }
         }

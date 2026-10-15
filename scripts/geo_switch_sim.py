@@ -40,17 +40,21 @@ def load(path):
     return d
 
 
-def simulate(d, persist=1, geo=0.0, rel=0.0, pts=10, keep=0):
+def simulate(d, persist=1, geo=0.0, rel=0.0, pts=10, keep=0, minconf=1):
     hit = d["yf"] >= YMIN
     last, lastgeo, streak, on = -10 ** 9, -10 ** 9, 0, 0
+    confs = []
     for i in range(len(hit)):
         streak = streak + 1 if hit[i] else 0
         fire = hit[i] and streak >= persist
         if fire and geo > 0:
             conf = d["nbox"][i] >= pts and d["rin"][i] >= geo and d["rin"][i] >= d["rout"][i] + rel
+            confs = [c for c in confs if i - c <= keep]
+            recent = keep > 0 and i - lastgeo <= keep and len(confs) >= minconf
             if conf:
                 lastgeo = i
-            fire = conf or (keep > 0 and i - lastgeo <= keep)
+                confs.append(i)
+            fire = conf or recent
         if fire:
             last = i
         on += (i - last) <= HOLD
@@ -92,26 +96,26 @@ def main(root):
     print("  (median [25-75 %] over those frames; outlier ratio = share of matched map points the pose")
     print("   optimisation rejected. Walking people should be clearly higher INSIDE than OUTSIDE.)")
 
-    configs = [("yolo only (SW_G10)", 1, 0.0, 0.0, 0), ("persist 3", 3, 0.0, 0.0, 0)]
+    configs = [("yolo only (SW_G10)", 1, 0.0, 0.0, 0, 1), ("persist 3", 3, 0.0, 0.0, 0, 1)]
     for g in (0.3, 0.4, 0.5):
         for r in (0.1, 0.2, 0.3):
-            configs.append((f"geo {g:.1f} rel {r:.1f}", 1, g, r, 0))
-    for r in (0.2, 0.3):
-        for k in (30, 60, 90, 150, 300):
-            configs.append((f"geo 0.3 rel {r:.1f} keep {k}", 1, 0.3, r, k))
+            configs.append((f"geo {g:.1f} rel {r:.1f}", 1, g, r, 0, 1))
+    for k in (90, 150):
+        for m in (1, 2, 3, 5):
+            configs.append((f"geo 0.3 rel 0.2 keep {k} conf {m}", 1, 0.3, 0.2, k, m))
 
     for var in sorted({v for _, v in data}):
         seqs = sorted({s for s, v in data if v == var}, key=lambda s: (kind(s), s))
         print(f"\n=== Replay on {var} runs: % of frames with the cap switched on (hold {HOLD})")
-        print(f"{'setting':27s}" + "".join(f"{s.replace('freiburg1_', 'fr1_')[:13]:>14s}" for s in seqs) + f"{'score':>8s}")
+        print(f"{'setting':32s}" + "".join(f"{s.replace('freiburg1_', 'fr1_')[:13]:>14s}" for s in seqs) + f"{'score':>8s}")
         scored = []
-        for name, pe, g, r, k in configs:
-            on = {s: simulate(data[(s, var)], pe, g, r, keep=k) for s in seqs}
+        for name, pe, g, r, k, m in configs:
+            on = {s: simulate(data[(s, var)], pe, g, r, keep=k, minconf=m) for s in seqs}
             ppl = [on[s] for s in seqs if kind(s) == "people"]
             st = [on[s] for s in seqs if kind(s) == "static"]
             score = (np.mean(ppl) if ppl else 0) - (np.mean(st) if st else 0)
             scored.append((score, name))
-            print(f"{name:27s}" + "".join(f"{on[s]:14.1f}" for s in seqs) + f"{score:8.1f}")
+            print(f"{name:32s}" + "".join(f"{on[s]:14.1f}" for s in seqs) + f"{score:8.1f}")
         scored.sort(reverse=True)
         print("  best (mean on walking - mean on static fr1):", ", ".join(f"{n} ({s:.0f})" for s, n in scored[:3]))
 

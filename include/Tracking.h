@@ -42,6 +42,7 @@
 #include "GeometricCamera.h"
 
 #include <mutex>
+#include <deque>
 #include <unordered_set>
 
 namespace ORB_SLAM3
@@ -332,6 +333,7 @@ protected:
     bool mbKfRuleActive = true;
     long mnLastDynFrameId = -1000000;
     long mnLastGeoFrameId = -1000000;   // last frame where the geometric check confirmed moving people
+    std::deque<long> mdGeoConfFrames;   // recent confirmation frames (DSLAM_KF_SWITCH_GEO_MINCONF)
     int   mnDynStreak = 0;            // consecutive frames with YOLO boxes (DSLAM_KF_SWITCH_PERSIST)
     float mfBoxOutlierRatio = -1.0f;  // outlier ratio of matched map points inside boxes (-1 = too few)
     float mfYoloFrac = 0.0f;          // fraction of keypoints inside YOLO boxes (current frame)

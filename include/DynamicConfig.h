@@ -112,6 +112,8 @@ struct DynamicConfig
     float       kfSwitchGeo     = 0.0f;  // DSLAM_KF_SWITCH_GEO: min outlier ratio inside boxes (0 = off)
     float       kfSwitchGeoRel  = 0.0f;  // DSLAM_KF_SWITCH_GEO_REL: and at least this much above the ratio outside
     int         kfSwitchGeoPts  = 10;    // DSLAM_KF_SWITCH_GEO_PTS: min matched map points inside boxes
+    int         kfSwitchGeoMinConf = 1;  // DSLAM_KF_SWITCH_GEO_MINCONF: confirmations within the keep window
+                                         // needed before YOLO alone may keep the switch on
     int         kfSwitchGeoKeep = 0;     // DSLAM_KF_SWITCH_GEO_KEEP: after a geometric confirmation, YOLO
                                          // alone keeps the switch on for this many frames (0 = off)
     int         kfMinGap   = 0;       // DSLAM_KF_MIN_GAP
@@ -216,6 +218,7 @@ private:
         if(const char* s = std::getenv("DSLAM_KF_SWITCH_GEO_REL")) c.kfSwitchGeoRel  = std::stof(s);
         if(const char* s = std::getenv("DSLAM_KF_SWITCH_GEO_PTS")) c.kfSwitchGeoPts  = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_KF_SWITCH_GEO_KEEP")) c.kfSwitchGeoKeep = std::atoi(s);
+        if(const char* s = std::getenv("DSLAM_KF_SWITCH_GEO_MINCONF")) c.kfSwitchGeoMinConf = std::max(1, std::atoi(s));
         if(const char* s = std::getenv("DSLAM_KF_MIN_GAP"))     c.kfMinGap     = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_DIAG"))           c.diag         = std::atoi(s) != 0;
         if(const char* s = std::getenv("DSLAM_DIAG_FILE"))      c.diagFile     = s;
@@ -246,7 +249,7 @@ private:
                   << " kf_semantic=" << c.kfSemantic
                   << " kf_switch=" << c.kfSwitch << "(" << c.kfSwitchMin << "," << c.kfSwitchHold
                   << ",persist=" << c.kfSwitchPersist << ",geo=" << c.kfSwitchGeo << ",geo_rel=" << c.kfSwitchGeoRel
-                  << ",geo_pts=" << c.kfSwitchGeoPts << ",geo_keep=" << c.kfSwitchGeoKeep << ")"
+                  << ",geo_pts=" << c.kfSwitchGeoPts << ",geo_keep=" << c.kfSwitchGeoKeep << ",geo_minconf=" << c.kfSwitchGeoMinConf << ")"
                   << " kf_min_gap=" << c.kfMinGap
                   << " diag=" << c.diag
                   << " map_filter=" << c.mapFilter << std::endl;
