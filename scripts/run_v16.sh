@@ -20,7 +20,7 @@
 #               which simulates the switch options offline and suggests thresholds.
 #   PHASE=eval  A0_YOLO = plain ORB-SLAM3 with YOLO running but unused (control for YOLO's run time)
 #               10 runs of A0, SW_G10, SW_P3 (persist 3), SW_C6 (YOLO conf 0.6), GEO_G10 (geometric)
-#               GEO_R / GEO_REL set the geometric thresholds (defaults 0.5 / 0.2).
+#               GEO_R / GEO_REL set the geometric thresholds (defaults 0.3 / 0.2).
 #
 # Usage (from ~/ORB_SLAM3):
 #   ./scripts/run_v16.sh 2>&1 | tee results_v16_diag_log.txt
@@ -30,10 +30,11 @@
 PHASE="${PHASE:-diag}"
 DATA_ROOT="${DATA_ROOT:-$HOME/datasets}"
 FAIL_TH="${FAIL_TH:-0.1}"
-GEO_R="${GEO_R:-0.5}"
+GEO_R="${GEO_R:-0.3}"   # chosen in v16 (diag replay); do not change without a reason
 GEO_REL="${GEO_REL:-0.2}"
 GEO_KEEP="${GEO_KEEP:-150}"
 GEO_MINCONF="${GEO_MINCONF:-2}"
+echo "settings: GEO_R=$GEO_R GEO_REL=$GEO_REL GEO_KEEP=$GEO_KEEP GEO_MINCONF=$GEO_MINCONF"
 DEF_SEQS="walking_xyz walking_static walking_halfsphere sitting_static freiburg1_room freiburg1_desk freiburg1_desk2"
 
 # name|extra environment (KF_SWITCH, KF_MIN_GAP, DIAG and switch options)
@@ -110,6 +111,8 @@ for SEQ in $SEQS; do
     NLOG=$(ls $ROOT/$SEQ/${V}_*.log 2>/dev/null | grep -c '_[0-9]*\.log$')
     NEV=$(ls $ROOT/$SEQ/${V}_*.eval 2>/dev/null | wc -l)
     [ "$NLOG" -gt "$NEV" ] && echo "    !! $((NLOG-NEV)) run(s) of $V crashed (no trajectory) - see the .log files"
+    CFG=$(grep -ho "kf_switch=[^ ]*" $ROOT/$SEQ/${V}_*.log 2>/dev/null | sort | uniq -c | awk '{printf "%s (x%s)  ", $2, $1}')
+    [ -n "$CFG" ] && echo "    settings: $CFG"
   done
 done
 
