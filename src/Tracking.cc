@@ -4146,6 +4146,13 @@ void Tracking::Reset(bool bLocMap)
     Frame::nNextId = 0;
     mState = NO_IMAGES_YET;
 
+    // frame ids restart at 0: reset the YOLO/geometric switch state as well, otherwise a stored
+    // "last dynamic frame" id from before the reset would keep the switch on
+    mnLastDynFrameId = -1000000;
+    mnLastGeoFrameId = -1000000;
+    mdGeoConfFrames.clear();
+    mnDynStreak = 0;
+
     mbReadyToInitializate = false;
     mbSetInit=false;
 
