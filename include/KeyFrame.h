@@ -387,6 +387,8 @@ public:
     // Used by LocalMapping to avoid triangulating new map points on moving objects.
     std::vector<bool> mvbDynamic;
     bool IsDynamic(const size_t i) const { return i < mvbDynamic.size() && mvbDynamic[i]; }
+    // DSLAM_MAP_FILTER=2: set by Tracking when the keyframe is created; the filter applies only if true.
+    bool mbFilterDynamic = true;
     const cv::Mat mDescriptors;
 
     //BoW

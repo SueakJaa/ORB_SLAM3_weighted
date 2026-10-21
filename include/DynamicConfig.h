@@ -122,7 +122,8 @@ struct DynamicConfig
     bool        diag       = false;   // DSLAM_DIAG=1
     std::string diagFile   = "diag_frames.csv";
     Kernel      kernel     = KERNEL_HUBER;
-    bool        mapFilter  = false;   // DSLAM_MAP_FILTER=1
+    int         mapFilter  = 0;       // DSLAM_MAP_FILTER: 0 off, 1 no new map points inside YOLO boxes,
+                                      // 2 the same but only while the keyframe switch is on (confirmed moving people)
 
     bool UseYOLO()     const { return mode == YOLO || mode == PROPOSED; }
     bool UseGeometry() const { return mode == GEO  || mode == PROPOSED; }
@@ -234,7 +235,7 @@ private:
             else std::cerr << "[DynamicConfig] Unknown DSLAM_KERNEL '" << k
                            << "', using 'huber'" << std::endl;
         }
-        if(const char* s = std::getenv("DSLAM_MAP_FILTER")) c.mapFilter = std::atoi(s) != 0;
+        if(const char* s = std::getenv("DSLAM_MAP_FILTER")) c.mapFilter = std::atoi(s);
 
         std::cout << "[DynamicConfig] mode=" << c.ModeName()
                   << " sigma=" << c.sigma

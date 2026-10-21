@@ -3556,6 +3556,8 @@ void Tracking::CreateNewKeyFrame()
         return;
 
     KeyFrame* pKF = new KeyFrame(mCurrentFrame,mpAtlas->GetCurrentMap(),mpKeyFrameDB);
+    // DSLAM_MAP_FILTER=2: keep people out of the map only while they are confirmed moving
+    pKF->mbFilterDynamic = DynamicConfig::Get().mapFilter != 2 || mbKfRuleActive;
 
     if(mpAtlas->isImuInitialized()) //  || mpLocalMapper->IsInitializing())
         pKF->bImu = true;
@@ -3599,7 +3601,7 @@ void Tracking::CreateNewKeyFrame()
             if(z>0)
             {
                 // DSLAM_MAP_FILTER: keep existing map points, but never create new ones on people
-                if(bMapFilter && mCurrentFrame.IsDynamic(i) && !mCurrentFrame.mvpMapPoints[i])
+                if(bMapFilter && pKF->mbFilterDynamic && mCurrentFrame.IsDynamic(i) && !mCurrentFrame.mvpMapPoints[i])
                     continue;
                 vDepthIdx.push_back(make_pair(z,i));
             }
