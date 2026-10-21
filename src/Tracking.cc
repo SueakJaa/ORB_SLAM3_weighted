@@ -3396,7 +3396,18 @@ bool Tracking::NeedNewKeyFrame()
         const int gap = dc.kfMinGap;
         const bool capActive = !dc.kfSwitch || mbKfRuleActive;   // with the switch: only while people are seen
         if(gap > 0 && capActive && mCurrentFrame.mnId < mnLastKeyFrameId + static_cast<unsigned int>(gap))
-            return false;
+        {
+            // DSLAM_KF_CAP_BYPASS (v19): the cap exists to stop keyframe flooding, not to starve tracking.
+            // When only a few map points are still tracked (ORB-SLAM3 declares tracking lost below 30),
+            // a new keyframe is needed to keep tracking alive, so the cap lets the normal decision run.
+            if(dc.kfCapBypass > 0 && mnMatchesInliers < dc.kfCapBypass)
+                mnCapBypassed++;
+            else
+            {
+                mnCapBlocked++;
+                return false;
+            }
+        }
     }
 
     const int nKFs = mpAtlas->KeyFramesInMap();
@@ -4493,6 +4504,8 @@ void Tracking::PrintDynamicStats()
     if(c.kfSwitch && mnSwFrames > 0)
         std::cout << " switch_on_frames=" << mnSwActive
                   << " (" << 100.0 * mnSwActive / mnSwFrames << " %)";
+    if(c.kfMinGap > 0)
+        std::cout << " cap_blocked=" << mnCapBlocked << " cap_bypassed=" << mnCapBypassed;
     std::cout << std::endl;
 }
 

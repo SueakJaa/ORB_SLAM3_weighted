@@ -78,6 +78,8 @@ public:
     int    mnYoloFramesWithDet;
     long   mnSwFrames = 0;   // frames that reached the keyframe decision
     long   mnSwActive = 0;   // ... of which with the switch on
+    long   mnCapBlocked = 0; // keyframe requests blocked by the cap (DSLAM_KF_MIN_GAP)
+    long   mnCapBypassed = 0;// ... let through because tracking was weak (DSLAM_KF_CAP_BYPASS)
     void PrintDynamicStats();
 
     // Preprocess the input and call Track(). Extract features and performs stereo matching.

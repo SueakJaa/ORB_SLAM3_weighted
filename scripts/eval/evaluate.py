@@ -23,7 +23,7 @@ import tum_metrics as tm  # noqa: E402
 
 FIELDS = ["sequence", "variant", "run", "status", "ate_rmse", "ate_mean", "ate_median", "ate_max", "coverage",
           "tracked_pct", "lost_frames",
-          "rpe_t_rmse", "rpe_r_rmse", "keyframes", "median_tracking_ms", "switch_on_pct", "note"]
+          "rpe_t_rmse", "rpe_r_rmse", "keyframes", "median_tracking_ms", "switch_on_pct", "cap_blocked", "cap_bypassed", "note"]
 
 
 _N_IMG = {}
@@ -48,6 +48,10 @@ def evaluate_run(cfg, seq, var, rd):
     m = re.search(r"switch_on_frames=\d+ \(([0-9.]+) %\)", meta.get("dynamic_stats", ""))
     if m:
         row["switch_on_pct"] = float(m.group(1))
+    for k in ("cap_blocked", "cap_bypassed"):
+        m = re.search(rf"{k}=(\d+)", meta.get("dynamic_stats", ""))
+        if m:
+            row[k] = int(m.group(1))
     kf = os.path.join(rd, "kf.txt")
     if os.path.exists(kf):
         with open(kf) as f:

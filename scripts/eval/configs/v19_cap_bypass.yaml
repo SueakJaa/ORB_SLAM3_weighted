@@ -1,0 +1,40 @@
+# v19: the keyframe cap no longer blocks a keyframe when tracking is about to fail
+# (fewer than DSLAM_KF_CAP_BYPASS tracked map points; ORB-SLAM3 itself declares tracking lost below 30).
+# Target: walking_rpy / walking_halfsphere lose tracking 3-16 % of the time with GEOK2_G10.
+# First pass: 5 runs per variant to pick the threshold; then raise runs to 10 for the chosen one.
+name: v19_cap_bypass
+runs: 5
+orbslam_root: ~/ORB_SLAM3
+data_root: ~/datasets
+results_root: results
+fail_threshold_m: 0.1
+
+common_env:
+  DSLAM_MODE: baseline
+  DSLAM_CHI2_GATE: raw
+  DSLAM_LABELS: opt
+  DSLAM_KERNEL: huber
+  DSLAM_MAP_FILTER: 0
+  DSLAM_IGNORE: ""
+  DSLAM_KF_SEMANTIC: 0
+  DSLAM_DIAG: 0
+  DSLAM_KF_SWITCH: 1
+  DSLAM_KF_MIN_GAP: 10
+  DSLAM_KF_SWITCH_GEO: 0.3
+  DSLAM_KF_SWITCH_GEO_REL: 0.2
+  DSLAM_KF_SWITCH_GEO_KEEP: 150
+  DSLAM_KF_SWITCH_GEO_MINCONF: 2
+
+baseline: GEOK2_G10           # compare each bypass setting with the current method
+variants:
+  GEOK2_G10:      {DSLAM_KF_CAP_BYPASS: 0}
+  GEOK2_B50:      {DSLAM_KF_CAP_BYPASS: 50}
+  GEOK2_B80:      {DSLAM_KF_CAP_BYPASS: 80}
+  GEOK2_B120:     {DSLAM_KF_CAP_BYPASS: 120}
+
+sequences:
+  - freiburg3_walking_rpy        # target
+  - freiburg3_walking_halfsphere # target
+  - freiburg3_walking_xyz        # must not get worse (flooding must stay blocked)
+  - freiburg3_walking_static
+  - freiburg1_room               # static control

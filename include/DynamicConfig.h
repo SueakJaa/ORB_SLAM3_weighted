@@ -117,6 +117,8 @@ struct DynamicConfig
     int         kfSwitchGeoKeep = 0;     // DSLAM_KF_SWITCH_GEO_KEEP: after a geometric confirmation, YOLO
                                          // alone keeps the switch on for this many frames (0 = off)
     int         kfMinGap   = 0;       // DSLAM_KF_MIN_GAP
+    int         kfCapBypass = 0;      // DSLAM_KF_CAP_BYPASS: cap does not block a keyframe when fewer than
+                                      // this many map points are tracked (tracking about to fail; 0 = off)
     bool        diag       = false;   // DSLAM_DIAG=1
     std::string diagFile   = "diag_frames.csv";
     Kernel      kernel     = KERNEL_HUBER;
@@ -220,6 +222,7 @@ private:
         if(const char* s = std::getenv("DSLAM_KF_SWITCH_GEO_KEEP")) c.kfSwitchGeoKeep = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_KF_SWITCH_GEO_MINCONF")) c.kfSwitchGeoMinConf = std::max(1, std::atoi(s));
         if(const char* s = std::getenv("DSLAM_KF_MIN_GAP"))     c.kfMinGap     = std::atoi(s);
+        if(const char* s = std::getenv("DSLAM_KF_CAP_BYPASS"))  c.kfCapBypass  = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_DIAG"))           c.diag         = std::atoi(s) != 0;
         if(const char* s = std::getenv("DSLAM_DIAG_FILE"))      c.diagFile     = s;
         if(const char* s = std::getenv("DSLAM_KERNEL"))
@@ -250,7 +253,7 @@ private:
                   << " kf_switch=" << c.kfSwitch << "(" << c.kfSwitchMin << "," << c.kfSwitchHold
                   << ",persist=" << c.kfSwitchPersist << ",geo=" << c.kfSwitchGeo << ",geo_rel=" << c.kfSwitchGeoRel
                   << ",geo_pts=" << c.kfSwitchGeoPts << ",geo_keep=" << c.kfSwitchGeoKeep << ",geo_minconf=" << c.kfSwitchGeoMinConf << ")"
-                  << " kf_min_gap=" << c.kfMinGap
+                  << " kf_min_gap=" << c.kfMinGap << " kf_cap_bypass=" << c.kfCapBypass
                   << " diag=" << c.diag
                   << " map_filter=" << c.mapFilter << std::endl;
         return c;
