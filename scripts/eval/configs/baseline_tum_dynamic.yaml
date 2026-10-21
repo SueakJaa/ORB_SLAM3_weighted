@@ -1,0 +1,43 @@
+# Baseline: plain ORB-SLAM3 (RGB-D) on the TUM RGB-D dynamic sequences.
+# Run from ~/ORB_SLAM3:
+#   python3 scripts/eval/run_experiments.py scripts/eval/configs/baseline_tum_dynamic.yaml
+#   python3 scripts/eval/evaluate.py        scripts/eval/configs/baseline_tum_dynamic.yaml
+#   python3 scripts/eval/report.py          scripts/eval/configs/baseline_tum_dynamic.yaml
+
+name: baseline_tum_dynamic
+runs: 10                      # ORB-SLAM3 is not deterministic: always report several runs
+orbslam_root: ~/ORB_SLAM3     # relative paths below are relative to this
+executable: Examples/RGB-D/rgbd_tum
+vocabulary: Vocabulary/ORBvoc.txt
+data_root: ~/datasets         # contains rgbd_dataset_freiburg3_walking_xyz/ etc.
+results_root: results         # -> ~/ORB_SLAM3/results/baseline_tum_dynamic/...
+fail_threshold_m: 0.1         # a run with ATE above this counts as a failure
+max_time_diff_s: 0.01         # timestamp association (evo default)
+rpe_delta: 1.0                # RPE over 1 second (TUM convention: drift per second)
+rpe_delta_unit: s             # s = seconds, f = frames (evo_rpe default is 1 frame)
+
+# all DSLAM_* switches off = unmodified ORB-SLAM3 behaviour (YOLO is not even loaded)
+common_env:
+  DSLAM_MODE: baseline
+  DSLAM_CHI2_GATE: raw
+  DSLAM_LABELS: opt
+  DSLAM_KERNEL: huber
+  DSLAM_MAP_FILTER: 0
+  DSLAM_IGNORE: ""
+  DSLAM_KF_SEMANTIC: 0
+  DSLAM_KF_SWITCH: 0
+  DSLAM_KF_MIN_GAP: 0
+  DSLAM_DIAG: 0
+
+baseline: A0_orbslam3         # significance tests compare every variant against this one
+variants:
+  A0_orbslam3: {}
+
+sequences:                    # fr3 "walking" = highly dynamic, "sitting" = low dynamic
+  - freiburg3_walking_xyz
+  - freiburg3_walking_static
+  - freiburg3_walking_halfsphere
+  - freiburg3_walking_rpy
+  - freiburg3_sitting_xyz
+  - freiburg3_sitting_static
+  - freiburg3_sitting_halfsphere
