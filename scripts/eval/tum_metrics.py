@@ -12,8 +12,14 @@ Conventions (match evo, which earlier results in this project used):
 import numpy as np
 
 
-def load_tum(path):
-    """Return (stamps[N], positions[N,3], quaternions[N,4] as x,y,z,w). Skips comments/empty lines."""
+def load_tum(path, return_duplicates=False):
+    """Return (stamps[N], positions[N,3], quaternions[N,4] as x,y,z,w). Skips comments/empty lines.
+
+    Repeated timestamps are dropped (first kept). ORB-SLAM3 writes them while it is RECENTLY_LOST:
+    such a frame gets no new pose, and the previous frame's timestamp and pose are copied. They are
+    not estimates, so they are counted (return_duplicates=True) and reported as lost frames instead
+    of being scored. The official TUM tools do the same (they key poses by timestamp); evo instead
+    scores every copy, which over-weights the frozen pose and gives a different RMSE."""
     rows = []
     with open(path) as f:
         for line in f:
@@ -28,6 +34,12 @@ def load_tum(path):
     a = np.array(rows)
     order = np.argsort(a[:, 0], kind="stable")
     a = a[order]
+    keep = np.ones(len(a), bool)
+    keep[1:] = np.diff(a[:, 0]) > 0
+    dups = int((~keep).sum())
+    a = a[keep]
+    if return_duplicates:
+        return a[:, 0], a[:, 1:4], a[:, 4:8], dups
     return a[:, 0], a[:, 1:4], a[:, 4:8]
 
 
@@ -100,7 +112,7 @@ def _stats(e):
 def ate(gt_path, est_path, max_diff=0.01, with_scale=False):
     """Absolute trajectory error. Returns (stats dict, details dict for plotting)."""
     tg, pg, qg = load_tum(gt_path)
-    te, pe, qe = load_tum(est_path)
+    te, pe, qe, dups = load_tum(est_path, return_duplicates=True)
     ig, ie = associate(tg, te, max_diff)
     if len(ig) < 3:
         raise ValueError(f"only {len(ig)} matched poses between {gt_path} and {est_path}")
@@ -109,6 +121,8 @@ def ate(gt_path, est_path, max_diff=0.01, with_scale=False):
     err = np.linalg.norm(pe_al - pg[ig], axis=1)
     st = _stats(err)
     st["coverage"] = float(len(ie) / len(te))
+    st["duplicates"] = dups
+    st["estimated_poses"] = int(len(te))
     return st, {"t": te[ie], "gt": pg[ig], "est": pe_al, "err": err, "gt_all": pg}
 
 

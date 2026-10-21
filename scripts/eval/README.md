@@ -36,6 +36,11 @@ settings - the runner skips runs that already exist under that name.
 - **RPE**: relative motion error over `rpe_delta` (default 1 s, the TUM benchmark convention = drift per
   second), translation in m and rotation in degrees, all overlapping pairs. With `rpe_delta_unit: f` and
   `rpe_delta: 1` it equals `evo_rpe tum gt est` (and `--all_pairs` for larger frame deltas).
+- **Lost frames**: while ORB-SLAM3 is RECENTLY_LOST it writes the previous pose and timestamp again for
+  every frame (repeated timestamps in `traj.txt`). These are not estimates: they are dropped before
+  scoring (as in the official TUM tools, which key poses by timestamp) and reported as `lost_frames` and
+  `tracked_pct`. evo scores every copy, so for runs with lost frames `evo_ape` gives a different (usually
+  higher) RMSE - `check_vs_evo.py` lists those runs. Runs without lost frames match evo exactly.
 - **Failure**: ATE > `fail_threshold_m` (default 0.1 m) or no trajectory (crash). Crashes are kept as
   results; `--retry-crashed` re-runs only those, `--force` re-runs everything.
 - **Significance**: two-sided Mann-Whitney U test of ATE, each variant vs the `baseline` variant.

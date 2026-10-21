@@ -87,6 +87,10 @@ def main():
                           f"evo {ev:.4f} ({ev_n} matched) | file: {fc['poses']} poses, unsorted {fc['unsorted']}, "
                           f"duplicate stamps {fc['duplicates']}, largest gap {fc['max_gap_s']:.2f} s")
     print(f"\n{n} runs compared, {bad} differ by more than 0.1 mm (largest difference {worst:.4f} m)")
+    if bad:
+        print("Expected where the file has duplicate stamps: ORB-SLAM3 copies the last pose and timestamp while\n"
+              "RECENTLY_LOST. This pipeline scores each timestamp once (like the TUM tools) and reports the copies\n"
+              "as lost frames; evo scores every copy. Runs without duplicate stamps must match exactly.")
 
 
 if __name__ == "__main__":

@@ -65,7 +65,8 @@ def load_rows(path):
     with open(path) as f:
         rows = list(csv.DictReader(f))
     for r in rows:
-        for k in ("ate_rmse", "rpe_t_rmse", "rpe_r_rmse", "keyframes", "median_tracking_ms", "switch_on_pct"):
+        for k in ("ate_rmse", "rpe_t_rmse", "rpe_r_rmse", "keyframes", "median_tracking_ms", "switch_on_pct",
+                  "tracked_pct"):
             r[k] = float(r[k]) if r.get(k) not in (None, "") else None
         r["run"] = int(r["run"])
     return rows
@@ -90,6 +91,7 @@ def summarize(cfg, rows):
             "rpe_t_median": st.median([r["rpe_t_rmse"] for r in ok]) if ok else None,
             "rpe_r_median": st.median([r["rpe_r_rmse"] for r in ok]) if ok else None,
             "keyframes": mean_of("keyframes"), "tracking_ms": mean_of("median_tracking_ms"),
+            "tracked_pct": mean_of("tracked_pct"),
             "switch_on_pct": mean_of("switch_on_pct"), "_ate": ate}
     for (s, v), d in out.items():
         b = out.get((s, base))
@@ -101,7 +103,8 @@ def summarize(cfg, rows):
 
 def write_tables(cfg, summ, seqs, variants, rep):
     keys = ["sequence", "variant", "runs", "crashes", "fails", "ate_median", "ate_mean", "ate_std", "ate_q1",
-            "ate_q3", "rpe_t_median", "rpe_r_median", "keyframes", "tracking_ms", "switch_on_pct", "p_vs_baseline"]
+            "ate_q3", "rpe_t_median", "rpe_r_median", "tracked_pct", "keyframes", "tracking_ms", "switch_on_pct",
+            "p_vs_baseline"]
     with open(os.path.join(rep, "summary.csv"), "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(keys)
@@ -115,12 +118,14 @@ def write_tables(cfg, summ, seqs, variants, rep):
     L = [f"# {cfg['name']}", "",
          f"ATE: RMSE after SE(3) alignment (as `evo_ape -a`), in m. RPE: RMSE over {cfg['rpe_delta']:g} {unit}, "
          f"translation in m, rotation in deg. A run fails if ATE > {thr:g} m or it produced no trajectory. "
-         f"p: two-sided Mann-Whitney U test of ATE against **{base}** (p < 0.05 = significant).", "",
+         f"p: two-sided Mann-Whitney U test of ATE against **{base}** (p < 0.05 = significant). "
+         f"Tracked %: frames with a real pose estimate; frames ORB-SLAM3 spent RECENTLY_LOST (repeated "
+         f"timestamps in its output) are not scored, as in the official TUM tools.", "",
          "![ATE per run](ate_box.png)", "", "![RPE per run](rpe_box.png)", ""]
     for s in seqs:
         L += [f"## {short(s)}", "",
-              "| Variant | Runs | Fails | ATE median | ATE mean ± std | ATE IQR | RPE trans | RPE rot | Keyframes | Track ms | p vs baseline |",
-              "|---|---|---|---|---|---|---|---|---|---|---|"]
+              "| Variant | Runs | Fails | ATE median | ATE mean ± std | ATE IQR | RPE trans | RPE rot | Tracked % | Keyframes | Track ms | p vs baseline |",
+              "|---|---|---|---|---|---|---|---|---|---|---|---|"]
         for v in variants:
             d = summ.get((s, v))
             if not d:
@@ -132,6 +137,7 @@ def write_tables(cfg, summ, seqs, variants, rep):
             L.append(f"| {v} | {d['runs']} | {d['fails']}" + (f" ({d['crashes']} crash)" if d["crashes"] else "") +
                      f" | {fnum(d['ate_median'])} | {fnum(d['ate_mean'])} ± {fnum(d['ate_std'])} | "
                      f"{fnum(d['ate_q1'])}–{fnum(d['ate_q3'])} | {fnum(d['rpe_t_median'])} | {fnum(d['rpe_r_median'], 2)} | "
+                     f"{fnum(d['tracked_pct'], 1)} | "
                      f"{fnum(d['keyframes'], 0)} | {fnum(d['tracking_ms'], 1)} | {ptxt} |")
         L += ["", f"![trajectories](traj_{s}.png)", "", f"![error over time](error_{s}.png)", ""]
     with open(os.path.join(rep, "summary.md"), "w") as f:
@@ -267,14 +273,16 @@ def main():
         box_figure(plt, cfg, rows, seqs, variants, "rpe_t_rmse", "RPE trans. RMSE [m]", os.path.join(rep, "rpe_box.png"))
         trajectory_figures(plt, cfg, rows, seqs, variants, rep)
     # console summary
-    print(f"{'sequence':26s} {'variant':16s} {'n':>3s} {'fail':>5s} {'ATE med':>8s} {'RPE t':>8s} {'RPE r':>7s} {'p':>7s}")
+    print(f"{'sequence':26s} {'variant':16s} {'n':>3s} {'fail':>5s} {'ATE med':>8s} {'RPE t':>8s} {'RPE r':>7s} "
+          f"{'track%':>7s} {'p':>7s}")
     for s in seqs:
         for v in variants:
             d = summ.get((s, v))
             if d:
                 p = d["p_vs_baseline"]
                 print(f"{short(s):26s} {v:16s} {d['runs']:3d} {d['fails']:5d} {fnum(d['ate_median']):>8s} "
-                      f"{fnum(d['rpe_t_median']):>8s} {fnum(d['rpe_r_median'], 2):>7s} {fnum(p) if p is not None else '-':>7s}")
+                      f"{fnum(d['rpe_t_median']):>8s} {fnum(d['rpe_r_median'], 2):>7s} {fnum(d['tracked_pct'], 1):>7s} "
+                      f"{fnum(p) if p is not None else '-':>7s}")
     print(f"report: {rep}/summary.md (+ figures)")
 
 

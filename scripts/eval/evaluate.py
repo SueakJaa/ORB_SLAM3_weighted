@@ -6,7 +6,9 @@ Usage (from ~/ORB_SLAM3):
 
 One row per run (crashed runs included, with status=crash), columns:
   sequence, variant, run, status, ate_rmse, ate_mean, ate_median, ate_max, coverage,
-  rpe_t_rmse [m per delta], rpe_r_rmse [deg per delta], keyframes, median_tracking_ms, switch_on_pct
+  tracked_pct (frames with a real pose estimate / frames given), lost_frames (ORB-SLAM3 RECENTLY_LOST
+  copies: repeated timestamps, not scored), rpe_t_rmse [m per delta], rpe_r_rmse [deg per delta],
+  keyframes, median_tracking_ms, switch_on_pct
 ATE = SE(3)-aligned, identical to `evo_ape tum gt est -a`. RPE delta from the config (default 1 s).
 """
 import csv
@@ -20,7 +22,19 @@ from common import load_config, seq_dir, exp_dir  # noqa: E402
 import tum_metrics as tm  # noqa: E402
 
 FIELDS = ["sequence", "variant", "run", "status", "ate_rmse", "ate_mean", "ate_median", "ate_max", "coverage",
+          "tracked_pct", "lost_frames",
           "rpe_t_rmse", "rpe_r_rmse", "keyframes", "median_tracking_ms", "switch_on_pct", "note"]
+
+
+_N_IMG = {}
+
+
+def n_images(cfg, seq):
+    """Number of RGB-D frames given to SLAM (lines of the association file)."""
+    if seq not in _N_IMG:
+        p = os.path.join(seq_dir(cfg, seq), "association_new.txt")
+        _N_IMG[seq] = sum(1 for l in open(p) if l.strip() and l[0] != "#") if os.path.exists(p) else None
+    return _N_IMG[seq]
 
 
 def evaluate_run(cfg, seq, var, rd):
@@ -50,7 +64,11 @@ def evaluate_run(cfg, seq, var, rd):
         row["status"], row["note"] = "eval_error", str(e)
         return row
     row.update({"ate_rmse": a["rmse"], "ate_mean": a["mean"], "ate_median": a["median"], "ate_max": a["max"],
-                "coverage": round(a["coverage"], 3), "rpe_t_rmse": t["rmse"], "rpe_r_rmse": r["rmse"]})
+                "coverage": round(a["coverage"], 3), "rpe_t_rmse": t["rmse"], "rpe_r_rmse": r["rmse"],
+                "lost_frames": a["duplicates"]})
+    n_img = n_images(cfg, seq)
+    if n_img:
+        row["tracked_pct"] = round(100.0 * a["estimated_poses"] / n_img, 1)
     if a["coverage"] < 0.9:
         row["note"] = f"only {100 * a['coverage']:.0f} % of the estimate matched ground truth"
     return row
