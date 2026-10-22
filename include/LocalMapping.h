@@ -44,6 +44,9 @@ public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     LocalMapping(System* pSys, Atlas* pAtlas, const float bMonocular, bool bInertial, const string &_strSeqName=std::string());
 
+    // DSLAM_MAP_FILTER statistics (triangulation in CreateNewMapPoints)
+    long mnTriCandidates = 0, mnTriFiltered = 0, mnTriCreated = 0;
+
     void SetLoopCloser(LoopClosing* pLoopCloser);
 
     void SetTracker(Tracking* pTracker);

@@ -3603,7 +3603,10 @@ void Tracking::CreateNewKeyFrame()
             {
                 // DSLAM_MAP_FILTER: keep existing map points, but never create new ones on people
                 if(bMapFilter && pKF->mbFilterDynamic && mCurrentFrame.IsDynamicMap(i) && !mCurrentFrame.mvpMapPoints[i])
+                {
+                    mDiag.mpFiltered++;
                     continue;
+                }
                 vDepthIdx.push_back(make_pair(z,i));
             }
         }
@@ -4509,6 +4512,10 @@ void Tracking::PrintDynamicStats()
                   << " (" << 100.0 * mnSwActive / mnSwFrames << " %)";
     if(c.kfMinGap > 0)
         std::cout << " cap_blocked=" << mnCapBlocked << " cap_bypassed=" << mnCapBypassed;
+    if(c.mapFilter && mpLocalMapper)
+        std::cout << " triangulation_candidates=" << mpLocalMapper->mnTriCandidates
+                  << " triangulation_filtered=" << mpLocalMapper->mnTriFiltered
+                  << " triangulated=" << mpLocalMapper->mnTriCreated;
     std::cout << std::endl;
 }
 
@@ -4519,7 +4526,8 @@ void Tracking::WriteDiagLine(bool bNeedKF)
         mDiagOut.open(DynamicConfig::Get().diagFile);
         mDiagOut << "frame,t,state,yolo_frac,kf_rule_active,matched,outliers,outliers_in_box,"
                     "inliers_in_box,inliers_track,inliers_kf,ref_matches,tracked_close,"
-                    "nontracked_close,need_kf,kf_created,new_mp,new_mp_in_box\n";
+                    "nontracked_close,need_kf,kf_created,new_mp,new_mp_in_box,mp_filtered,dyn_map_frac,"
+                    "map_points,map_keyframes\n";
     }
     mDiagOut << mCurrentFrame.mnId << ',' << std::fixed << std::setprecision(6) << mCurrentFrame.mTimeStamp << ','
              << static_cast<int>(mState) << ',' << std::setprecision(3) << mfYoloFrac << ','
@@ -4527,7 +4535,12 @@ void Tracking::WriteDiagLine(bool bNeedKF)
              << mDiag.outliersInBox << ',' << mDiag.inliersInBox << ',' << mnMatchesInliers << ','
              << mnMatchesInliersKF << ',' << mDiag.refMatches << ',' << mDiag.trackedClose << ','
              << mDiag.nonTrackedClose << ',' << bNeedKF << ',' << mDiag.kfCreated << ','
-             << mDiag.newMP << ',' << mDiag.newMPInBox << '\n';
+             << mDiag.newMP << ',' << mDiag.newMPInBox << ',' << mDiag.mpFiltered << ',';
+    int nDynMap = 0;
+    for(size_t i = 0; i < mCurrentFrame.mvbDynamicMap.size(); i++)
+        if(mCurrentFrame.mvbDynamicMap[i]) nDynMap++;
+    mDiagOut << std::setprecision(3) << (mCurrentFrame.N > 0 ? static_cast<float>(nDynMap) / mCurrentFrame.N : 0.0f) << ','
+             << mpAtlas->MapPointsInMap() << ',' << mpAtlas->KeyFramesInMap() << '\n';
 }
 
 } //namespace ORB_SLAM

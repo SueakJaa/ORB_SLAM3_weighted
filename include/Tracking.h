@@ -346,6 +346,7 @@ protected:
         int matched = 0, outliers = 0, outliersInBox = 0, inliersInBox = 0;
         int refMatches = -1, trackedClose = -1, nonTrackedClose = -1;
         int newMP = 0, newMPInBox = 0;
+        int mpFiltered = 0;          // close points not turned into map points by DSLAM_MAP_FILTER
         bool kfCreated = false;
     };
     DiagStats mDiag;

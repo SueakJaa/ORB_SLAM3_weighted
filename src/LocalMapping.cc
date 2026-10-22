@@ -488,9 +488,13 @@ void LocalMapping::CreateNewMapPoints()
             const int &idx2 = vMatchedIndices[ikp].second;
 
             // DSLAM_MAP_FILTER: do not triangulate points on objects YOLO marked as dynamic
+            mnTriCandidates++;
             if(bMapFilter && ((mpCurrentKeyFrame->mbFilterDynamic && mpCurrentKeyFrame->IsDynamicMap(idx1)) ||
                               (pKF2->mbFilterDynamic && pKF2->IsDynamicMap(idx2))))
+            {
+                mnTriFiltered++;
                 continue;
+            }
 
             const cv::KeyPoint &kp1 = (mpCurrentKeyFrame -> NLeft == -1) ? mpCurrentKeyFrame->mvKeysUn[idx1]
                                                                          : (idx1 < mpCurrentKeyFrame -> NLeft) ? mpCurrentKeyFrame -> mvKeys[idx1]
@@ -713,6 +717,7 @@ void LocalMapping::CreateNewMapPoints()
             pMP->UpdateNormalAndDepth();
 
             mpAtlas->AddMapPoint(pMP);
+            mnTriCreated++;
             mlpRecentAddedMapPoints.push_back(pMP);
         }
     }    
