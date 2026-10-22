@@ -1,0 +1,46 @@
+# Confirmation run (10 runs, all 12 sequences) for the v19c candidates against the current method.
+#   GEOK2_G10        current final method (keyframe cap with semantic-geometric switch)
+#   GEOK2_MFD05      + confirmed-moving people kept out of the map (depth margin 0.5 m)
+#   GEOK2_MFD05_B50  + the same, and the cap lets a keyframe through when < 50 points are tracked
+# Plain ORB-SLAM3 is in thesis_main / baseline_tum_dynamic (same sequences, 10 runs).
+name: thesis_v19
+runs: 10
+orbslam_root: ~/ORB_SLAM3
+data_root: ~/datasets
+results_root: results
+fail_threshold_m: 0.1
+
+common_env:
+  DSLAM_MODE: baseline
+  DSLAM_CHI2_GATE: raw
+  DSLAM_LABELS: opt
+  DSLAM_KERNEL: huber
+  DSLAM_IGNORE: ""
+  DSLAM_KF_SEMANTIC: 0
+  DSLAM_DIAG: 0
+  DSLAM_KF_SWITCH: 1
+  DSLAM_KF_MIN_GAP: 10
+  DSLAM_KF_SWITCH_GEO: 0.3
+  DSLAM_KF_SWITCH_GEO_REL: 0.2
+  DSLAM_KF_SWITCH_GEO_KEEP: 150
+  DSLAM_KF_SWITCH_GEO_MINCONF: 2
+
+baseline: GEOK2_G10
+variants:
+  GEOK2_G10:        {DSLAM_MAP_FILTER: 0, DSLAM_KF_CAP_BYPASS: 0}
+  GEOK2_MFD05:      {DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_KF_CAP_BYPASS: 0}
+  GEOK2_MFD05_B50:  {DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_KF_CAP_BYPASS: 50}
+
+sequences:
+  - freiburg3_walking_xyz
+  - freiburg3_walking_static
+  - freiburg3_walking_halfsphere
+  - freiburg3_walking_rpy
+  - freiburg3_sitting_xyz
+  - freiburg3_sitting_static
+  - freiburg3_sitting_halfsphere
+  - freiburg2_desk_with_person
+  - freiburg1_room
+  - freiburg1_desk
+  - freiburg1_desk2
+  - freiburg1_360
