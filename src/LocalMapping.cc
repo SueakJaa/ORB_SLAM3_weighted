@@ -481,7 +481,7 @@ void LocalMapping::CreateNewMapPoints()
 
         // Triangulate each match
         const int nmatches = vMatchedIndices.size();
-        const bool bMapFilter = DynamicConfig::Get().mapFilter;
+        const bool bMapFilter = DynamicConfig::Get().mapFilter && (DynamicConfig::Get().mapFilterSites & 2);
         for(int ikp=0; ikp<nmatches; ikp++)
         {
             const int &idx1 = vMatchedIndices[ikp].first;

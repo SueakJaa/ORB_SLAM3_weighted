@@ -3595,7 +3595,7 @@ void Tracking::CreateNewKeyFrame()
         vector<pair<float,int> > vDepthIdx;
         int N = (mCurrentFrame.Nleft != -1) ? mCurrentFrame.Nleft : mCurrentFrame.N;
         vDepthIdx.reserve(mCurrentFrame.N);
-        const bool bMapFilter = DynamicConfig::Get().mapFilter;
+        const bool bMapFilter = DynamicConfig::Get().mapFilter && (DynamicConfig::Get().mapFilterSites & 1);
         for(int i=0; i<N; i++)
         {
             float z = mCurrentFrame.mvDepth[i];
