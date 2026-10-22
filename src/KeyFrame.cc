@@ -64,6 +64,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB):
     mnId=nNextId++;
 
     mvbDynamic = F.mvbDynamic;
+    mvbDynamicMap = F.mvbDynamicMap;
 
     mGrid.resize(mnGridCols);
     if(F.Nleft != -1)  mGridRight.resize(mnGridCols);

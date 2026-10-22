@@ -1,0 +1,40 @@
+# v19c: keep only the PERSON out of the map, not the whole box.
+# v19b showed: no map points inside confirmed boxes fixes walking_rpy (0.148 -> 0.040 m), halfsphere and
+# walking_static, but breaks walking_xyz (0.019 -> 0.245 m): there people fill much of the image and the
+# box also hides the background behind them, so the map gets too sparse. With DSLAM_MAP_FILTER_DEPTH the
+# filter keeps out only points no farther than (person depth + margin); background inside the box is mapped.
+name: v19c_map_filter_depth
+runs: 5
+orbslam_root: ~/ORB_SLAM3
+data_root: ~/datasets
+results_root: results
+fail_threshold_m: 0.1
+
+common_env:
+  DSLAM_MODE: baseline
+  DSLAM_CHI2_GATE: raw
+  DSLAM_LABELS: opt
+  DSLAM_KERNEL: huber
+  DSLAM_IGNORE: ""
+  DSLAM_KF_SEMANTIC: 0
+  DSLAM_DIAG: 0
+  DSLAM_KF_SWITCH: 1
+  DSLAM_KF_MIN_GAP: 10
+  DSLAM_KF_SWITCH_GEO: 0.3
+  DSLAM_KF_SWITCH_GEO_REL: 0.2
+  DSLAM_KF_SWITCH_GEO_KEEP: 150
+  DSLAM_KF_SWITCH_GEO_MINCONF: 2
+
+baseline: GEOK2_G10
+variants:
+  GEOK2_G10:        {DSLAM_MAP_FILTER: 0, DSLAM_KF_CAP_BYPASS: 0}
+  GEOK2_MF:         {DSLAM_MAP_FILTER: 2, DSLAM_KF_CAP_BYPASS: 0}
+  GEOK2_MFD05:      {DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_KF_CAP_BYPASS: 0}
+  GEOK2_MFD05_B50:  {DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_KF_CAP_BYPASS: 50}
+
+sequences:
+  - freiburg3_walking_xyz        # broke with the whole-box filter
+  - freiburg3_walking_rpy
+  - freiburg3_walking_halfsphere
+  - freiburg3_walking_static
+  - freiburg1_room

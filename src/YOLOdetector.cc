@@ -174,6 +174,7 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
         }
         mConfidenceMap = confMap.clone();
         mnLastDetections = 0;
+        mvLastBoxes.clear();
         return cv::Mat(image.rows, image.cols, CV_8UC1, cv::Scalar(255));
     }
 
@@ -185,6 +186,7 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
     const int num_detections = static_cast<int>(dets.size() / 85);
     const int num_classes = 80;
     mnLastDetections = 0;
+    mvLastBoxes.clear();
 
     const float confThreshold = ORB_SLAM3::DynamicConfig::Get().yoloConf;
     const float shrink = 0.8f;  // boxes shrunk to 80% before building the confidence map
@@ -270,6 +272,8 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
 
         int new_x = x + (width - new_w)/2;
         int new_y = y + (height - new_h)/2;
+
+        mvLastBoxes.push_back(cv::Rect(new_x, new_y, new_w, new_h));
 
         // ===== DRAW MASK =====
         cv::rectangle(mask, cv::Rect(new_x, new_y, new_w, new_h), 0, -1);

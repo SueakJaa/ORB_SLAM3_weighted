@@ -124,6 +124,8 @@ struct DynamicConfig
     Kernel      kernel     = KERNEL_HUBER;
     int         mapFilter  = 0;       // DSLAM_MAP_FILTER: 0 off, 1 no new map points inside YOLO boxes,
                                       // 2 the same but only while the keyframe switch is on (confirmed moving people)
+    float       mapFilterDepth = 0.0f; // DSLAM_MAP_FILTER_DEPTH: keep only points within this depth [m] of the
+                                       // person out of the map (0 = the whole box)
 
     bool UseYOLO()     const { return mode == YOLO || mode == PROPOSED; }
     bool UseGeometry() const { return mode == GEO  || mode == PROPOSED; }
@@ -236,6 +238,7 @@ private:
                            << "', using 'huber'" << std::endl;
         }
         if(const char* s = std::getenv("DSLAM_MAP_FILTER")) c.mapFilter = std::atoi(s);
+        if(const char* s = std::getenv("DSLAM_MAP_FILTER_DEPTH")) c.mapFilterDepth = std::stof(s);
 
         std::cout << "[DynamicConfig] mode=" << c.ModeName()
                   << " sigma=" << c.sigma
@@ -256,7 +259,7 @@ private:
                   << ",geo_pts=" << c.kfSwitchGeoPts << ",geo_keep=" << c.kfSwitchGeoKeep << ",geo_minconf=" << c.kfSwitchGeoMinConf << ")"
                   << " kf_min_gap=" << c.kfMinGap << " kf_cap_bypass=" << c.kfCapBypass
                   << " diag=" << c.diag
-                  << " map_filter=" << c.mapFilter << std::endl;
+                  << " map_filter=" << c.mapFilter << "(depth " << c.mapFilterDepth << ")" << std::endl;
         return c;
     }
 };

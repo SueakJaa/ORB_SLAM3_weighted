@@ -15,6 +15,7 @@ public:
     cv::Mat Infer(const cv::Mat &image);
     cv::Mat mConfidenceMap;
     int mnLastDetections = 0;   // dynamic-class boxes kept in the last Infer() call
+    std::vector<cv::Rect> mvLastBoxes;   // those boxes (shrunk as in the confidence map), image pixels
 private:
     cv::dnn::Net net;   // the model
 };

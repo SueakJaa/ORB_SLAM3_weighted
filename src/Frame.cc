@@ -17,6 +17,7 @@
 */
 
 #include "Frame.h"
+#include <algorithm>
 
 #include "G2oTypes.h"
 #include "MapPoint.h"
@@ -76,6 +77,7 @@ Frame::Frame(const Frame &frame)
     mDynamicMask       = frame.mDynamicMask;
     mDynamicConfidence = frame.mDynamicConfidence;
     mvbDynamic         = frame.mvbDynamic;
+    mvbDynamicMap      = frame.mvbDynamicMap;
 
     for(int i=0;i<FRAME_GRID_COLS;i++)
         for(int j=0; j<FRAME_GRID_ROWS; j++){
@@ -1275,6 +1277,43 @@ void Frame::ComputeDynamicFlags()
         if(x < 0 || y < 0 || x >= mDynamicConfidence.cols || y >= mDynamicConfidence.rows)
             continue;
         mvbDynamic[i] = mDynamicConfidence.at<float>(y, x) > 0.0f;
+    }
+}
+
+void Frame::RefineDynamicForMap(const std::vector<cv::Rect> &boxes, float depthMargin)
+{
+    // Boxes cover the person AND the background behind them. Keeping every box point out of the map
+    // starves the map when people fill a large part of the image. With a depth margin, only points no
+    // farther than (person depth + margin) are kept out; person depth = 25th percentile of the box's depths.
+    mvbDynamicMap = mvbDynamic;
+    if(depthMargin <= 0.0f || boxes.empty() || mvDepth.empty())
+        return;
+    mvbDynamicMap.assign(N, false);
+    const int nKeys = (Nleft == -1) ? N : Nleft;
+    for(const cv::Rect &b : boxes)
+    {
+        std::vector<int> idx;
+        std::vector<float> depths;
+        for(int i = 0; i < nKeys; i++)
+        {
+            const cv::Point2f &p = mvKeys[i].pt;
+            if(!b.contains(cv::Point(static_cast<int>(p.x), static_cast<int>(p.y))))
+                continue;
+            idx.push_back(i);
+            if(mvDepth[i] > 0)
+                depths.push_back(mvDepth[i]);
+        }
+        if(depths.size() < 5)
+        {
+            for(int i : idx) mvbDynamicMap[i] = true;   // too little depth: keep the whole box out
+            continue;
+        }
+        const size_t k = depths.size() / 4;
+        std::nth_element(depths.begin(), depths.begin() + k, depths.end());
+        const float limit = depths[k] + depthMargin;
+        for(int i : idx)
+            if(mvDepth[i] <= 0 || mvDepth[i] <= limit)
+                mvbDynamicMap[i] = true;
     }
 }
 

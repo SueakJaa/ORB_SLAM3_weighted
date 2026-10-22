@@ -1583,6 +1583,7 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
             mCurrentFrame.mDynamicMask = mask.clone();
             mCurrentFrame.mDynamicConfidence = mpYOLO->mConfidenceMap.clone();
             mCurrentFrame.ComputeDynamicFlags();
+            mCurrentFrame.RefineDynamicForMap(mpYOLO->mvLastBoxes, DynamicConfig::Get().mapFilterDepth);
 
             if(verbose)
                 std::cout << "YOLO mask applied, size: "
@@ -2480,7 +2481,7 @@ void Tracking::StereoInitialization()
             for(int i=0; i<mCurrentFrame.N;i++)
             {
                 float z = mCurrentFrame.mvDepth[i];
-                if(z>0 && bMapFilter && mCurrentFrame.IsDynamic(i))
+                if(z>0 && bMapFilter && mCurrentFrame.IsDynamicMap(i))
                 {
                     nSkippedDyn++;      // DSLAM_MAP_FILTER: no initial map points on people
                     continue;
@@ -3601,7 +3602,7 @@ void Tracking::CreateNewKeyFrame()
             if(z>0)
             {
                 // DSLAM_MAP_FILTER: keep existing map points, but never create new ones on people
-                if(bMapFilter && pKF->mbFilterDynamic && mCurrentFrame.IsDynamic(i) && !mCurrentFrame.mvpMapPoints[i])
+                if(bMapFilter && pKF->mbFilterDynamic && mCurrentFrame.IsDynamicMap(i) && !mCurrentFrame.mvpMapPoints[i])
                     continue;
                 vDepthIdx.push_back(make_pair(z,i));
             }

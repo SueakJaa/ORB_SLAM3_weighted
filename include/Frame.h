@@ -239,6 +239,11 @@ public:
     std::vector<bool> mvbDynamic;
     void ComputeDynamicFlags();
     bool IsDynamic(const size_t i) const { return i < mvbDynamic.size() && mvbDynamic[i]; }
+    // DSLAM_MAP_FILTER: keypoints kept out of the map. Equal to mvbDynamic, or with
+    // DSLAM_MAP_FILTER_DEPTH only the points near the person's depth (background seen inside the box stays).
+    std::vector<bool> mvbDynamicMap;
+    bool IsDynamicMap(const size_t i) const { return i < mvbDynamicMap.size() && mvbDynamicMap[i]; }
+    void RefineDynamicForMap(const std::vector<cv::Rect> &boxes, float depthMargin);
 
     // Corresponding stereo coordinate and depth for each keypoint.
     std::vector<MapPoint*> mvpMapPoints;

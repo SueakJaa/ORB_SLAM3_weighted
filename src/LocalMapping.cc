@@ -488,8 +488,8 @@ void LocalMapping::CreateNewMapPoints()
             const int &idx2 = vMatchedIndices[ikp].second;
 
             // DSLAM_MAP_FILTER: do not triangulate points on objects YOLO marked as dynamic
-            if(bMapFilter && ((mpCurrentKeyFrame->mbFilterDynamic && mpCurrentKeyFrame->IsDynamic(idx1)) ||
-                              (pKF2->mbFilterDynamic && pKF2->IsDynamic(idx2))))
+            if(bMapFilter && ((mpCurrentKeyFrame->mbFilterDynamic && mpCurrentKeyFrame->IsDynamicMap(idx1)) ||
+                              (pKF2->mbFilterDynamic && pKF2->IsDynamicMap(idx2))))
                 continue;
 
             const cv::KeyPoint &kp1 = (mpCurrentKeyFrame -> NLeft == -1) ? mpCurrentKeyFrame->mvKeysUn[idx1]
