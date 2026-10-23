@@ -126,6 +126,8 @@ struct DynamicConfig
                                       // 2 the same but only while the keyframe switch is on (confirmed moving people)
     int         mapFilterSites = 3;    // DSLAM_MAP_FILTER_SITES: 1 Tracking (new keyframe's close points),
                                        // 2 LocalMapping triangulation, 3 both
+    int         mapFilterInit = -1;    // DSLAM_MAP_FILTER_INIT: filter the initial map too? 1 yes, 0 no,
+                                       // -1 auto (mode 1: yes; mode 2: only if the switch is on - it never is at start)
     float       mapFilterDepth = 0.0f; // DSLAM_MAP_FILTER_DEPTH: keep only points within this depth [m] of the
                                        // person out of the map (0 = the whole box)
 
@@ -242,6 +244,7 @@ private:
         if(const char* s = std::getenv("DSLAM_MAP_FILTER")) c.mapFilter = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_MAP_FILTER_DEPTH")) c.mapFilterDepth = std::stof(s);
         if(const char* s = std::getenv("DSLAM_MAP_FILTER_SITES")) c.mapFilterSites = std::atoi(s);
+        if(const char* s = std::getenv("DSLAM_MAP_FILTER_INIT")) c.mapFilterInit = std::atoi(s);
 
         std::cout << "[DynamicConfig] mode=" << c.ModeName()
                   << " sigma=" << c.sigma
@@ -262,7 +265,7 @@ private:
                   << ",geo_pts=" << c.kfSwitchGeoPts << ",geo_keep=" << c.kfSwitchGeoKeep << ",geo_minconf=" << c.kfSwitchGeoMinConf << ")"
                   << " kf_min_gap=" << c.kfMinGap << " kf_cap_bypass=" << c.kfCapBypass
                   << " diag=" << c.diag
-                  << " map_filter=" << c.mapFilter << "(depth " << c.mapFilterDepth << ", sites " << c.mapFilterSites << ")" << std::endl;
+                  << " map_filter=" << c.mapFilter << "(depth " << c.mapFilterDepth << ", sites " << c.mapFilterSites << ", init " << c.mapFilterInit << ")" << std::endl;
         return c;
     }
 };

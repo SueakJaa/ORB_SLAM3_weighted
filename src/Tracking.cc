@@ -2474,9 +2474,19 @@ void Tracking::StereoInitialization()
         // Insert KeyFrame in the map
         mpAtlas->AddKeyFrame(pKFini);
 
+        // DSLAM_MAP_FILTER_INIT: does the filter apply to the initial map (and to later triangulations
+        // with the first keyframe)? Up to v19e it always did; with mode 2 it should follow the switch,
+        // which is never on at the first frame (no geometric confirmation yet).
+        {
+            const DynamicConfig& dcf = DynamicConfig::Get();
+            const bool bInit = dcf.mapFilterInit == 1 ||
+                               (dcf.mapFilterInit < 0 && (dcf.mapFilter != 2 || mbKfRuleActive));
+            pKFini->mbFilterDynamic = bInit;
+        }
+
         // Create MapPoints and asscoiate to KeyFrame
         if(!mpCamera2){
-            const bool bMapFilter = DynamicConfig::Get().mapFilter;
+            const bool bMapFilter = DynamicConfig::Get().mapFilter && pKFini->mbFilterDynamic;
             int nSkippedDyn = 0;
             for(int i=0; i<mCurrentFrame.N;i++)
             {
