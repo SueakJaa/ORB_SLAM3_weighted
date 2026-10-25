@@ -46,6 +46,9 @@ public:
 
     // DSLAM_MAP_FILTER statistics (triangulation in CreateNewMapPoints)
     long mnTriCandidates = 0, mnTriFiltered = 0, mnTriCreated = 0;
+    std::vector<float> mvTimeKfMs;   // time to process one keyframe (ProcessNewKeyFrame ... InsertKeyFrame) [ms]
+    std::mutex mMutexTiming;         // mvTimeKfMs is read by the tracking thread at shutdown
+    std::vector<float> GetKeyFrameTimes() { std::unique_lock<std::mutex> lock(mMutexTiming); return mvTimeKfMs; }
 
     void SetLoopCloser(LoopClosing* pLoopCloser);
 

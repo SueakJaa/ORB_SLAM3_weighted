@@ -80,6 +80,7 @@ void LocalMapping::Run()
 
             std::chrono::steady_clock::time_point time_StartProcessKF = std::chrono::steady_clock::now();
 #endif
+            const std::chrono::steady_clock::time_point tKf0 = std::chrono::steady_clock::now();
             // BoW conversion and insertion in Map
             ProcessNewKeyFrame();
 #ifdef REGISTER_TIMES
@@ -249,6 +250,10 @@ void LocalMapping::Run()
 #endif
 
             mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
+            {
+                std::unique_lock<std::mutex> lockT(mMutexTiming);
+                mvTimeKfMs.push_back(std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - tKf0).count());
+            }
 
 #ifdef REGISTER_TIMES
             std::chrono::steady_clock::time_point time_EndLocalMap = std::chrono::steady_clock::now();

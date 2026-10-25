@@ -36,12 +36,16 @@ def load_config(path):
     cfg["results_root"] = _expand(cfg.get("results_root", "results"), root)
     cfg.setdefault("calibration", {"freiburg1": "Examples/RGB-D/TUM1.yaml",
                                    "freiburg2": "Examples/RGB-D/TUM2.yaml",
-                                   "freiburg3": "Examples/RGB-D/TUM3.yaml"})
-    cfg["sequences"] = [s if s.startswith("freiburg") else "freiburg3_" + s for s in cfg["sequences"]]
+                                   "freiburg3": "Examples/RGB-D/TUM3.yaml",
+                                   "bonn": "Examples/RGB-D/Bonn.yaml"})
+    # TUM: freiburg1_desk ... (short fr3 names allowed); Bonn: bonn_balloon ... (folder rgbd_bonn_balloon)
+    cfg["sequences"] = [s if s.startswith(("freiburg", "bonn_")) else "freiburg3_" + s for s in cfg["sequences"]]
     return cfg
 
 
 def seq_dir(cfg, seq):
+    if seq.startswith("bonn_"):
+        return os.path.join(cfg["data_root"], "rgbd_" + seq)
     return os.path.join(cfg["data_root"], "rgbd_dataset_" + seq)
 
 
@@ -51,7 +55,8 @@ def seq_calib(cfg, seq):
 
 
 def short(seq):
-    return seq.replace("freiburg1_", "fr1/").replace("freiburg2_", "fr2/").replace("freiburg3_", "fr3/")
+    return (seq.replace("freiburg1_", "fr1/").replace("freiburg2_", "fr2/").replace("freiburg3_", "fr3/")
+            .replace("bonn_", "bonn/"))
 
 
 def ensure_association(repo, d):

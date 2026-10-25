@@ -47,6 +47,8 @@ def parse_log(text):
             out["mean_tracking_s"] = float(line.split(":")[1])
         elif "[DynamicConfig]" in line:
             out["dynamic_config"] = line.split("[DynamicConfig]", 1)[1].strip()
+        elif "[Timing]" in line:
+            out["timing"] = line.split("[Timing]", 1)[1].strip()
         elif "[DynamicStats]" in line:
             out["dynamic_stats"] = line.split("[DynamicStats]", 1)[1].strip()
     return out

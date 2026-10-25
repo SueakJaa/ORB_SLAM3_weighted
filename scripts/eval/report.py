@@ -66,7 +66,7 @@ def load_rows(path):
         rows = list(csv.DictReader(f))
     for r in rows:
         for k in ("ate_rmse", "rpe_t_rmse", "rpe_r_rmse", "keyframes", "median_tracking_ms", "switch_on_pct",
-                  "tracked_pct"):
+                  "tracked_pct", "orb_ms", "yolo_ms", "track_ms", "total_ms", "localmap_kf_ms"):
             r[k] = float(r[k]) if r.get(k) not in (None, "") else None
         r["run"] = int(r["run"])
     return rows
@@ -101,7 +101,7 @@ def summarize(cfg, rows):
     return out
 
 
-def write_tables(cfg, summ, seqs, variants, rep):
+def write_tables(cfg, summ, seqs, variants, rep, rows=()):
     keys = ["sequence", "variant", "runs", "crashes", "fails", "ate_median", "ate_mean", "ate_std", "ate_q1",
             "ate_q3", "rpe_t_median", "rpe_r_median", "tracked_pct", "keyframes", "tracking_ms", "switch_on_pct",
             "p_vs_baseline"]
@@ -140,8 +140,30 @@ def write_tables(cfg, summ, seqs, variants, rep):
                      f"{fnum(d['tracked_pct'], 1)} | "
                      f"{fnum(d['keyframes'], 0)} | {fnum(d['tracking_ms'], 1)} | {ptxt} |")
         L += ["", f"![trajectories](traj_{s}.png)", "", f"![error over time](error_{s}.png)", ""]
+    L += timing_table(rows, variants)
     with open(os.path.join(rep, "summary.md"), "w") as f:
         f.write("\n".join(L) + "\n")
+
+
+def timing_table(rows, variants):
+    """Median per-frame time of each module over all runs of a variant (needs the [Timing] line, v20+)."""
+    keys = [("orb_ms", "ORB extraction"), ("yolo_ms", "YOLO"), ("track_ms", "tracking"), ("total_ms", "total per frame"),
+            ("localmap_kf_ms", "local mapping per keyframe")]
+    have = [v for v in variants if any(r["variant"] == v and r.get("total_ms") is not None for r in rows)]
+    if not have:
+        return []
+    L = ["## Timing (ms, median over all runs and sequences)", "",
+         "Tracking thread: ORB extraction + YOLO + tracking = total per frame (FPS = 1000 / total). "
+         "Local mapping runs in a separate thread, per keyframe.", "",
+         "| Variant | " + " | ".join(n for _, n in keys) + " | FPS |", "|---" * (len(keys) + 2) + "|"]
+    for v in have:
+        vals = []
+        for k, _ in keys:
+            x = [r[k] for r in rows if r["variant"] == v and r.get(k) is not None]
+            vals.append(st.median(x) if x else None)
+        fps = 1000.0 / vals[3] if vals[3] else None
+        L.append(f"| {v} | " + " | ".join(fnum(x, 1) for x in vals) + f" | {fnum(fps, 1)} |")
+    return L + [""]
 
 
 def style(plt):
@@ -260,7 +282,7 @@ def main():
     rep = os.path.join(root, "report")
     os.makedirs(rep, exist_ok=True)
     summ = summarize(cfg, rows)
-    write_tables(cfg, summ, seqs, variants, rep)
+    write_tables(cfg, summ, seqs, variants, rep, rows)
     try:
         import matplotlib
         matplotlib.use("Agg")

@@ -59,7 +59,7 @@ def main():
     n = bad = 0
     worst = 0.0
     for seq in sorted(os.listdir(root)):
-        if not seq.startswith("freiburg") or (a.seq and seq not in a.seq):
+        if not seq.startswith(("freiburg", "bonn")) or (a.seq and seq not in a.seq):
             continue
         gt = os.path.join(seq_dir(cfg, seq), "groundtruth.txt")
         for var in sorted(os.listdir(os.path.join(root, seq))):

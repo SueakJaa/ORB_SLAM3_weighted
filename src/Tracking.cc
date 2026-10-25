@@ -1531,6 +1531,7 @@ Sophus::SE3f Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat 
 
 Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, const double &timestamp, string filename)
 {
+    const std::chrono::steady_clock::time_point tGrab0 = std::chrono::steady_clock::now();
     mImGray = imRGB;
     cv::Mat imDepth = imD;
 
@@ -1555,11 +1556,13 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
         imDepth.convertTo(imDepth,CV_32F,mDepthMapFactor);
 
     // ===== FRAME CREATION =====
+    const std::chrono::steady_clock::time_point tOrb0 = std::chrono::steady_clock::now();
 
     if (mSensor == System::RGBD)
         mCurrentFrame = Frame(mImGray,imDepth,timestamp,mpORBextractorLeft,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth,mpCamera);
     else if(mSensor == System::IMU_RGBD)
         mCurrentFrame = Frame(mImGray,imDepth,timestamp,mpORBextractorLeft,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth,mpCamera,&mLastFrame,*mpImuCalib);
+    mvTimeOrbMs.push_back(std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - tOrb0).count());
 
     // ===== YOLO ONLINE MASK =====
     if(mbUseYOLO && mpYOLO)
@@ -1571,6 +1574,7 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
         cv::Mat mask = mpYOLO->Infer(imRGB);
         std::chrono::steady_clock::time_point tYolo1 = std::chrono::steady_clock::now();
         mdYoloTimeTotal += std::chrono::duration_cast<std::chrono::duration<double> >(tYolo1 - tYolo0).count();
+        mvTimeYoloMs.push_back(std::chrono::duration<float, std::milli>(tYolo1 - tYolo0).count());
         mnYoloFrames++;
         if(mpYOLO->mnLastDetections > 0) mnYoloFramesWithDet++;
 
@@ -1639,7 +1643,11 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
     vdORBExtract_ms.push_back(mCurrentFrame.mTimeORB_Ext);
 #endif
 
+    const std::chrono::steady_clock::time_point tTrack0 = std::chrono::steady_clock::now();
     Track();
+    const std::chrono::steady_clock::time_point tTrack1 = std::chrono::steady_clock::now();
+    mvTimeTrackMs.push_back(std::chrono::duration<float, std::milli>(tTrack1 - tTrack0).count());
+    mvTimeTotalMs.push_back(std::chrono::duration<float, std::milli>(tTrack1 - tGrab0).count());
 
     return mCurrentFrame.GetPose();
 }
@@ -4508,8 +4516,32 @@ void Tracking::ApplyDynamicMaskToFrame(Frame &frame)
     }
 }
 
+static void TimingLine(const char* name, std::vector<float> v)
+{
+    if(v.empty()) return;
+    double sum = 0;
+    for(float x : v) sum += x;
+    std::sort(v.begin(), v.end());
+    std::cout << " " << name << "_median=" << v[v.size() / 2] << " " << name << "_mean=" << sum / v.size()
+              << " " << name << "_p95=" << v[std::min(v.size() - 1, (size_t)(0.95 * v.size()))];
+}
+
 void Tracking::PrintDynamicStats()
 {
+    // per-module timing [ms]; tracking thread only, local mapping runs in parallel (per keyframe)
+    std::cout << "[Timing] frames=" << mvTimeTotalMs.size();
+    TimingLine("orb_ms", mvTimeOrbMs);
+    TimingLine("yolo_ms", mvTimeYoloMs);
+    TimingLine("track_ms", mvTimeTrackMs);
+    TimingLine("total_ms", mvTimeTotalMs);
+    if(mpLocalMapper)
+    {
+        const std::vector<float> vKf = mpLocalMapper->GetKeyFrameTimes();
+        std::cout << " keyframes_processed=" << vKf.size();
+        TimingLine("localmap_per_kf_ms", vKf);
+    }
+    std::cout << std::endl;
+
     const DynamicConfig& c = DynamicConfig::Get();
     std::cout << "[DynamicStats] mode=" << c.ModeName();
     if(mnYoloFrames > 0)

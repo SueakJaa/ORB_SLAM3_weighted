@@ -1,0 +1,38 @@
+# v20 step 1a: per-module timing on this PC ([Timing] line, added in v20).
+#   A0_orbslam3  plain ORB-SLAM3 (no YOLO)
+#   A0_YOLO      plain ORB-SLAM3 with YOLO running but unused  -> cost of YOLO alone
+#   GEOK2_G10 / GEOK2_MF  the methods
+# The report has a timing table (ms per module, FPS). Close other programs while it runs.
+name: timing_tum
+runs: 3
+orbslam_root: ~/ORB_SLAM3
+data_root: ~/datasets
+results_root: results
+fail_threshold_m: 0.1
+
+common_env:
+  DSLAM_MODE: baseline
+  DSLAM_CHI2_GATE: raw
+  DSLAM_LABELS: opt
+  DSLAM_KERNEL: huber
+  DSLAM_IGNORE: ""
+  DSLAM_KF_SEMANTIC: 0
+  DSLAM_DIAG: 0
+  DSLAM_KF_CAP_BYPASS: 0
+
+baseline: A0_orbslam3
+variants:
+  A0_orbslam3:  {DSLAM_KF_SWITCH: 0, DSLAM_KF_MIN_GAP: 0, DSLAM_MAP_FILTER: 0}
+  GEOK2_G10:    {DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10, DSLAM_MAP_FILTER: 0,
+                 DSLAM_KF_SWITCH_GEO: 0.3, DSLAM_KF_SWITCH_GEO_REL: 0.2, DSLAM_KF_SWITCH_GEO_KEEP: 150,
+                 DSLAM_KF_SWITCH_GEO_MINCONF: 2}
+  GEOK2_MF:     {DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10,
+                 DSLAM_KF_SWITCH_GEO: 0.3, DSLAM_KF_SWITCH_GEO_REL: 0.2, DSLAM_KF_SWITCH_GEO_KEEP: 150,
+                 DSLAM_KF_SWITCH_GEO_MINCONF: 2,
+                 DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1}
+  A0_YOLO:      {DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 0, DSLAM_MAP_FILTER: 0}
+
+sequences:
+  - freiburg3_walking_xyz
+  - freiburg3_walking_rpy
+  - freiburg1_room

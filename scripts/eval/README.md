@@ -24,10 +24,19 @@ report/ate_box.png, rpe_box.png, traj_<seq>.png, error_<seq>.png
 | File | What it runs |
 |---|---|
 | `configs/baseline_tum_dynamic.yaml` | plain ORB-SLAM3, 7 fr3 dynamic sequences (walking + sitting), 10 runs |
-| `configs/thesis_main.yaml` | A0 (ORB-SLAM3) vs SW_G10 (YOLO-only switch) vs GEOK2_G10 (final method), 12 sequences |
+| `configs/thesis_main.yaml` | A0 (ORB-SLAM3) vs SW_G10 (YOLO-only switch) vs GEOK2_G10, 12 sequences |
+| `configs/thesis_final.yaml` | A0 / SW_G10 / GEOK2_G10 / GEOK2_MF (final method), 12 sequences |
+| `configs/timing_tum.yaml` | per-module timing (ORB, YOLO, tracking, local mapping) and FPS |
+| `configs/bonn_baseline.yaml` | the same four methods on 10 Bonn RGB-D Dynamic sequences (`download_bonn.sh` first) |
 
 New experiment: copy a config, change `name`, `variants`, `sequences`. Never reuse a `name` for different
 settings - the runner skips runs that already exist under that name.
+
+Sequence names: TUM `freiburg1_desk`, `freiburg3_walking_xyz` (short `walking_xyz` = fr3), Bonn `bonn_balloon`
+(folder `rgbd_bonn_balloon`, calibration `Examples/RGB-D/Bonn.yaml`).
+
+Timing: every run logs a `[Timing]` line (medians per frame for ORB extraction, YOLO, tracking and the total of
+the tracking thread; local mapping per keyframe). `metrics.csv` has the columns, `summary.md` a timing table.
 
 ## Metrics (checked against evo 1.38 on synthetic data: identical values)
 

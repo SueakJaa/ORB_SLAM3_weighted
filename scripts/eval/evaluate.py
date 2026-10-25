@@ -23,7 +23,8 @@ import tum_metrics as tm  # noqa: E402
 
 FIELDS = ["sequence", "variant", "run", "status", "ate_rmse", "ate_mean", "ate_median", "ate_max", "coverage",
           "tracked_pct", "lost_frames",
-          "rpe_t_rmse", "rpe_r_rmse", "keyframes", "median_tracking_ms", "switch_on_pct", "cap_blocked", "cap_bypassed", "note"]
+          "rpe_t_rmse", "rpe_r_rmse", "keyframes", "median_tracking_ms", "switch_on_pct", "cap_blocked", "cap_bypassed",
+          "orb_ms", "yolo_ms", "track_ms", "total_ms", "localmap_kf_ms", "note"]
 
 
 _N_IMG = {}
@@ -48,6 +49,12 @@ def evaluate_run(cfg, seq, var, rd):
     m = re.search(r"switch_on_frames=\d+ \(([0-9.]+) %\)", meta.get("dynamic_stats", ""))
     if m:
         row["switch_on_pct"] = float(m.group(1))
+    # per-module timing (medians per frame; local mapping per keyframe), from the [Timing] line
+    for k, col in (("orb_ms", "orb_ms"), ("yolo_ms", "yolo_ms"), ("track_ms", "track_ms"),
+                   ("total_ms", "total_ms"), ("localmap_per_kf_ms", "localmap_kf_ms")):
+        m = re.search(rf"\b{k}_median=([0-9.eE+-]+)", meta.get("timing", ""))
+        if m:
+            row[col] = round(float(m.group(1)), 2)
     for k in ("cap_blocked", "cap_bypassed"):
         m = re.search(rf"{k}=(\d+)", meta.get("dynamic_stats", ""))
         if m:
@@ -88,7 +95,7 @@ def main():
     rows = []
     for seq in sorted(os.listdir(root)):
         sd = os.path.join(root, seq)
-        if not os.path.isdir(sd) or not seq.startswith("freiburg"):
+        if not os.path.isdir(sd) or not seq.startswith(("freiburg", "bonn")):
             continue
         for var in sorted(os.listdir(sd)):
             vd = os.path.join(sd, var)
