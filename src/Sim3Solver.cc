@@ -186,6 +186,8 @@ Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool>
         }
 
         ComputeSim3(P3Dc1i,P3Dc2i);
+        if(!mbSim3Valid)
+            continue;   // degenerate sample (e.g. repeated points): skip instead of crashing on NaN
 
         CheckInliers();
 
@@ -259,6 +261,8 @@ Eigen::Matrix4f Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool>
         }
 
         ComputeSim3(P3Dc1i,P3Dc2i);
+        if(!mbSim3Valid)
+            continue;   // degenerate sample (e.g. repeated points): skip instead of crashing on NaN
 
         CheckInliers();
 
@@ -314,6 +318,7 @@ void Sim3Solver::ComputeSim3(Eigen::Matrix3f &P1, Eigen::Matrix3f &P2)
     // Horn 1987, Closed-form solution of absolute orientataion using unit quaternions
 
     // Step 1: Centroid and relative coordinates
+    mbSim3Valid = true;
 
     Eigen::Matrix3f Pr1; // Relative coordinates to centroid (set 1)
     Eigen::Matrix3f Pr2; // Relative coordinates to centroid (set 2)
@@ -361,11 +366,24 @@ void Sim3Solver::ComputeSim3(Eigen::Matrix3f &P1, Eigen::Matrix3f &P2)
 
     Eigen::Vector3f vec = evec.block<3,1>(1,maxIndex); //extract imaginary part of the quaternion (sin*axis)
 
+    // Degenerate minimal samples (repeated or collinear points) give a zero/NaN N matrix. The original code
+    // then divided by vec.norm() == 0 and Sophus aborted on NaN ("SO3::exp failed") in the loop-closing thread.
+    if(!eval.allFinite() || !evec.allFinite())
+    {
+        mbSim3Valid = false;
+        return;
+    }
+
     // Rotation angle. sin is the norm of the imaginary part, cos is the real part
     double ang=atan2(vec.norm(),evec(0,maxIndex));
 
-    vec = 2*ang*vec/vec.norm(); //Angle-axis representation. quaternion angle is the half
-    mR12i = Sophus::SO3f::exp(vec).matrix();
+    if(vec.norm() < 1e-12f)
+        mR12i.setIdentity();     // no rotation
+    else
+    {
+        vec = 2*ang*vec/vec.norm(); //Angle-axis representation. quaternion angle is the half
+        mR12i = Sophus::SO3f::exp(vec).matrix();
+    }
 
     // Step 5: Rotate set 2
     Eigen::Matrix3f P3 = mR12i*Pr2;
@@ -409,6 +427,9 @@ void Sim3Solver::ComputeSim3(Eigen::Matrix3f &P1, Eigen::Matrix3f &P2)
 
     Eigen::Vector3f tinv = -sRinv * mt12i;
     mT21i.block<3,1>(0,3) = tinv;
+
+    if(!std::isfinite(ms12i) || ms12i <= 0 || !mT12i.allFinite() || !mT21i.allFinite())
+        mbSim3Valid = false;
 }
 
 

@@ -83,6 +83,7 @@ protected:
 
     // Current Estimation
     Eigen::Matrix3f mR12i;
+    bool mbSim3Valid = true;   // false if the minimal sample was degenerate (NaN/inf in the solution)
     Eigen::Vector3f mt12i;
     float ms12i;
     Eigen::Matrix4f mT12i;
