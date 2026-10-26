@@ -68,7 +68,23 @@ def ensure_association(repo, d):
         with open(assoc, "w") as f:
             f.write(out)
         print(f"   created {assoc}")
+    # drop pairs whose image file is missing (rgb.txt / depth.txt of some sequences list files that are not
+    # in the archive; ORB-SLAM3 then reads an empty image and crashes, e.g. Bonn static)
+    with open(assoc) as f:
+        lines = [l for l in f if l.strip() and l[0] != "#"]
+    ok = [l for l in lines if all(os.path.exists(os.path.join(d, x)) for x in l.split()[1::2][:2])]
+    if len(ok) < len(lines):
+        os.replace(assoc, assoc + ".orig")
+        with open(assoc, "w") as f:
+            f.writelines(ok)
+        print(f"   {len(lines) - len(ok)} frame(s) with missing image files removed from {assoc} "
+              f"(original kept as association_new.txt.orig)")
     return assoc
+
+
+def gt_kind(cfg, seq):
+    """Ground-truth correction for a sequence (Bonn: marker -> camera, see tum_metrics.gt_transform)."""
+    return cfg.get("bonn_gt", "bonn_tm") if seq.startswith("bonn_") else None
 
 
 def exp_dir(cfg):

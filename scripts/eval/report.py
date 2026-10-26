@@ -20,7 +20,7 @@ import sys
 from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import load_config, seq_dir, exp_dir, short  # noqa: E402
+from common import load_config, seq_dir, exp_dir, short, gt_kind  # noqa: E402
 import tum_metrics as tm  # noqa: E402
 
 # categorical palette, fixed order (slot n = n-th variant in the config) - validated for adjacent pairs
@@ -241,7 +241,7 @@ def trajectory_figures(plt, cfg, rows, seqs, variants, rep):
             if not r:
                 continue
             traj = os.path.join(exp_dir(cfg), s, v, f"run_{r['run']:02d}", "traj.txt")
-            _, d = tm.ate(gt, traj, cfg["max_time_diff_s"])
+            _, d = tm.ate(gt, traj, cfg["max_time_diff_s"], gt_kind=gt_kind(cfg, s))
             if not gt_drawn:
                 ax1.plot(d["gt_all"][:, 0], d["gt_all"][:, 1], color=TEXT2, linestyle="--", linewidth=1.2,
                          label="ground truth", zorder=5)

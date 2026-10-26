@@ -33,7 +33,9 @@ New experiment: copy a config, change `name`, `variants`, `sequences`. Never reu
 settings - the runner skips runs that already exist under that name.
 
 Sequence names: TUM `freiburg1_desk`, `freiburg3_walking_xyz` (short `walking_xyz` = fr3), Bonn `bonn_balloon`
-(folder `rgbd_bonn_balloon`, calibration `Examples/RGB-D/Bonn.yaml`).
+(folder `rgbd_bonn_balloon`, calibration `Examples/RGB-D/Bonn.yaml`). Bonn ground truth is the motion-capture
+marker pose; the config key `bonn_gt` (default `bonn_tm`) converts it to the camera pose with the dataset's
+calibration - `bonn_gt_check.py` shows the effect of each option on finished runs.
 
 Timing: every run logs a `[Timing]` line (medians per frame for ORB extraction, YOLO, tracking and the total of
 the tracking thread; local mapping per keyframe). `metrics.csv` has the columns, `summary.md` a timing table.

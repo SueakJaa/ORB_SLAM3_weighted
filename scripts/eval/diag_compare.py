@@ -25,7 +25,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import load_config, seq_dir, exp_dir, short  # noqa: E402
+from common import load_config, seq_dir, exp_dir, short, gt_kind  # noqa: E402
 import tum_metrics as tm  # noqa: E402
 from report import SERIES, style, MUTED  # noqa: E402
 
@@ -122,7 +122,7 @@ def main():
             axes[0].plot(t, [r["inliers_track"] for r in d], color=color[v], linewidth=1.2, label=lab)
             axes[1].plot(t, [r["map_points"] for r in d], color=color[v], linewidth=1.5)
             traj = os.path.join(root, s_, v, f"run_{x['run']:02d}", "traj.txt")
-            _, det = tm.ate(gt, traj, cfg["max_time_diff_s"])
+            _, det = tm.ate(gt, traj, cfg["max_time_diff_s"], gt_kind=gt_kind(cfg, s_))
             axes[2].plot(det["t"] - t0, det["err"], color=color[v], linewidth=1.5)
         axes[0].axhline(30, color=MUTED, linestyle="--", linewidth=1)
         axes[0].set_ylabel("tracked map points")

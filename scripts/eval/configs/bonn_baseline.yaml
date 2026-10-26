@@ -2,9 +2,12 @@
 # Download first:  bash scripts/eval/download_bonn.sh   (sequences below, about 7 GB)
 # Moving people (crowd, person_tracking, synchronous) AND moving objects YOLO does not know (balloons,
 # boxes): there our switch can only react to people, so these sequences show the method's limit.
-# Ground truth: groundtruth.txt evaluated directly with SE(3) alignment, as in most dynamic-SLAM papers
-# (the dataset page also gives the marker-to-sensor transform; not applied here).
+# Ground truth: groundtruth.txt is the motion-capture MARKER pose (axis-swapped). bonn_gt converts it to the
+# camera pose with the dataset's calibration (camera = T_ros * G * T_ros * T_m); without it, RPE rotation is
+# meaningless (20-60 deg/s on good runs) and ATE carries a ~2 cm marker offset. Check with bonn_gt_check.py.
+# bonn_gt: none | bonn_tm | bonn_tm_inv
 name: bonn_baseline
+bonn_gt: bonn_tm
 runs: 5
 orbslam_root: ~/ORB_SLAM3
 data_root: ~/datasets

@@ -60,6 +60,64 @@ def quat_to_rot(q):
     return R
 
 
+def rot_to_quat(R):
+    """R[..., 3, 3] -> q[..., 4] as x,y,z,w (Shepperd's method)."""
+    R = np.asarray(R)
+    q = np.empty(R.shape[:-2] + (4,))
+    tr = np.trace(R, axis1=-2, axis2=-1)
+    for idx in np.ndindex(R.shape[:-2]):
+        m, t = R[idx], tr[idx]
+        if t > 0:
+            s = 2 * np.sqrt(t + 1)
+            q[idx] = [(m[2, 1] - m[1, 2]) / s, (m[0, 2] - m[2, 0]) / s, (m[1, 0] - m[0, 1]) / s, s / 4]
+        else:
+            i = int(np.argmax(np.diag(m)))
+            j, k = (i + 1) % 3, (i + 2) % 3
+            s = 2 * np.sqrt(1 + m[i, i] - m[j, j] - m[k, k])
+            v = np.empty(4)
+            v[i] = s / 4
+            v[j] = (m[j, i] + m[i, j]) / s
+            v[k] = (m[k, i] + m[i, k]) / s
+            v[3] = (m[k, j] - m[j, k]) / s
+            q[idx] = v
+    return q
+
+
+# Bonn RGB-D Dynamic: groundtruth.txt holds the motion-capture MARKER pose, written with an axis swap
+# ("ROS bug"). Camera pose = T_ros * G * T_ros * T_m (T_m: sensor-to-marker calibration), from
+# compute_global_transformation.py on the dataset page. T_m's 3x3 block is not exactly a rotation
+# (rows have norm ~1.06), so it is projected to the nearest rotation (SVD) before use.
+BONN_T_ROS = np.array([[-1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]], float)
+BONN_T_M = np.array([[1.0157, 0.1828, -0.2389, 0.0113],
+                     [0.0009, -0.8431, -0.6413, -0.0098],
+                     [-0.3009, 0.6147, -0.8085, 0.0111],
+                     [0, 0, 0, 1.0]])
+
+
+def _nearest_rigid(T):
+    U, _, Vt = np.linalg.svd(T[:3, :3])
+    R = U @ Vt
+    if np.linalg.det(R) < 0:
+        U[:, -1] *= -1
+        R = U @ Vt
+    out = np.eye(4)
+    out[:3, :3], out[:3, 3] = R, T[:3, 3]
+    return out
+
+
+def gt_transform(p, q, kind):
+    """Apply a ground-truth frame correction. kind: None/'none', 'bonn_tm' or 'bonn_tm_inv'."""
+    if not kind or kind == "none":
+        return p, q
+    Tm = _nearest_rigid(BONN_T_M)
+    if kind == "bonn_tm_inv":
+        Tm = np.linalg.inv(Tm)
+    elif kind != "bonn_tm":
+        raise ValueError(f"unknown gt_transform {kind}")
+    T = BONN_T_ROS @ to_se3(p, q) @ BONN_T_ROS @ Tm
+    return T[:, :3, 3], rot_to_quat(T[:, :3, :3])
+
+
 def to_se3(p, q):
     T = np.tile(np.eye(4), (len(p), 1, 1))
     T[:, :3, :3] = quat_to_rot(q)
@@ -109,9 +167,10 @@ def _stats(e):
             "std": float(np.std(e)), "min": float(np.min(e)), "max": float(np.max(e)), "n": int(len(e))}
 
 
-def ate(gt_path, est_path, max_diff=0.01, with_scale=False):
+def ate(gt_path, est_path, max_diff=0.01, with_scale=False, gt_kind=None):
     """Absolute trajectory error. Returns (stats dict, details dict for plotting)."""
     tg, pg, qg = load_tum(gt_path)
+    pg, qg = gt_transform(pg, qg, gt_kind)
     te, pe, qe, dups = load_tum(est_path, return_duplicates=True)
     ig, ie = associate(tg, te, max_diff)
     if len(ig) < 3:
@@ -126,10 +185,11 @@ def ate(gt_path, est_path, max_diff=0.01, with_scale=False):
     return st, {"t": te[ie], "gt": pg[ig], "est": pe_al, "err": err, "gt_all": pg}
 
 
-def rpe(gt_path, est_path, delta=1.0, delta_unit="s", max_diff=0.01):
+def rpe(gt_path, est_path, delta=1.0, delta_unit="s", max_diff=0.01, gt_kind=None):
     """Relative pose error. delta_unit "s": pairs ~delta seconds apart (TUM convention),
     "f": pairs delta matched frames apart (evo default). Returns (trans stats [m], rot stats [deg])."""
     tg, pg, qg = load_tum(gt_path)
+    pg, qg = gt_transform(pg, qg, gt_kind)
     te, pe, qe = load_tum(est_path)
     ig, ie = associate(tg, te, max_diff)
     G, E = to_se3(pg[ig], qg[ig]), to_se3(pe[ie], qe[ie])

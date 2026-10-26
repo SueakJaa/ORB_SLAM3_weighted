@@ -18,7 +18,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import load_config, seq_dir, exp_dir  # noqa: E402
+from common import load_config, seq_dir, exp_dir, gt_kind  # noqa: E402
 import tum_metrics as tm  # noqa: E402
 
 FIELDS = ["sequence", "variant", "run", "status", "ate_rmse", "ate_mean", "ate_median", "ate_max", "coverage",
@@ -69,8 +69,9 @@ def evaluate_run(cfg, seq, var, rd):
         return row
     gt = os.path.join(seq_dir(cfg, seq), "groundtruth.txt")
     try:
-        a, _ = tm.ate(gt, traj, cfg["max_time_diff_s"])
-        t, r = tm.rpe(gt, traj, cfg["rpe_delta"], cfg["rpe_delta_unit"], cfg["max_time_diff_s"])
+        a, _ = tm.ate(gt, traj, cfg["max_time_diff_s"], gt_kind=gt_kind(cfg, seq))
+        t, r = tm.rpe(gt, traj, cfg["rpe_delta"], cfg["rpe_delta_unit"], cfg["max_time_diff_s"],
+                      gt_kind=gt_kind(cfg, seq))
     except ValueError as e:
         row["status"], row["note"] = "eval_error", str(e)
         return row
