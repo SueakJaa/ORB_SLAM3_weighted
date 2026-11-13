@@ -112,6 +112,9 @@ struct DynamicConfig
     float       kfSwitchGeo     = 0.0f;  // DSLAM_KF_SWITCH_GEO: min outlier ratio inside boxes (0 = off)
     float       kfSwitchGeoRel  = 0.0f;  // DSLAM_KF_SWITCH_GEO_REL: and at least this much above the ratio outside
     int         kfSwitchGeoPts  = 10;    // DSLAM_KF_SWITCH_GEO_PTS: min matched map points inside boxes
+    float       kfSwitchGeoZ    = 0.0f;  // DSLAM_KF_SWITCH_GEO_Z: >0 replaces the fixed margin GEO_REL by a one-sided
+                                         // two-proportion z-test (inside outlier ratio significantly above
+                                         // outside, given the point counts); 3.09 = p < 0.001. 0 = margin (v18)
     int         kfSwitchGeoMinConf = 1;  // DSLAM_KF_SWITCH_GEO_MINCONF: confirmations within the keep window
                                          // needed before YOLO alone may keep the switch on
     int         kfSwitchGeoKeep = 0;     // DSLAM_KF_SWITCH_GEO_KEEP: after a geometric confirmation, YOLO
@@ -226,6 +229,7 @@ private:
         if(const char* s = std::getenv("DSLAM_KF_SWITCH_GEO"))     c.kfSwitchGeo     = std::stof(s);
         if(const char* s = std::getenv("DSLAM_KF_SWITCH_GEO_REL")) c.kfSwitchGeoRel  = std::stof(s);
         if(const char* s = std::getenv("DSLAM_KF_SWITCH_GEO_PTS")) c.kfSwitchGeoPts  = std::atoi(s);
+        if(const char* s = std::getenv("DSLAM_KF_SWITCH_GEO_Z"))   c.kfSwitchGeoZ    = std::stof(s);
         if(const char* s = std::getenv("DSLAM_KF_SWITCH_GEO_KEEP")) c.kfSwitchGeoKeep = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_KF_SWITCH_GEO_MINCONF")) c.kfSwitchGeoMinConf = std::max(1, std::atoi(s));
         if(const char* s = std::getenv("DSLAM_KF_MIN_GAP"))     c.kfMinGap     = std::atoi(s);
@@ -262,7 +266,7 @@ private:
                   << " kf_semantic=" << c.kfSemantic
                   << " kf_switch=" << c.kfSwitch << "(" << c.kfSwitchMin << "," << c.kfSwitchHold
                   << ",persist=" << c.kfSwitchPersist << ",geo=" << c.kfSwitchGeo << ",geo_rel=" << c.kfSwitchGeoRel
-                  << ",geo_pts=" << c.kfSwitchGeoPts << ",geo_keep=" << c.kfSwitchGeoKeep << ",geo_minconf=" << c.kfSwitchGeoMinConf << ")"
+                  << ",geo_pts=" << c.kfSwitchGeoPts << ",geo_z=" << c.kfSwitchGeoZ << ",geo_keep=" << c.kfSwitchGeoKeep << ",geo_minconf=" << c.kfSwitchGeoMinConf << ")"
                   << " kf_min_gap=" << c.kfMinGap << " kf_cap_bypass=" << c.kfCapBypass
                   << " diag=" << c.diag
                   << " map_filter=" << c.mapFilter << "(depth " << c.mapFilterDepth << ", sites " << c.mapFilterSites << ", init " << c.mapFilterInit << ")" << std::endl;

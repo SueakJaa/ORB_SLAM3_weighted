@@ -35,6 +35,8 @@
 #include <mutex>
 #include <chrono>
 #include <iomanip>
+#include <cmath>
+#include <algorithm>
 
 
 using namespace std;
@@ -3338,7 +3340,19 @@ bool Tracking::TrackLocalMap()
            mnDynStreak >= dc.kfSwitchPersist && mfBoxOutlierRatio >= 0.0f)
         {
             const float rOut = nOut > 0 ? static_cast<float>(mDiag.outliers - mDiag.outliersInBox) / nOut : 0.0f;
-            if(mfBoxOutlierRatio >= dc.kfSwitchGeo && mfBoxOutlierRatio >= rOut + dc.kfSwitchGeoRel)
+            bool bContrast;
+            if(dc.kfSwitchGeoZ > 0.0f)
+            {
+                // one-sided two-proportion z-test: a box with few points (a standing person's legs) needs a
+                // much larger contrast than a person filling the view (~0.35 at 10 points, ~0.12 at 100)
+                const int oOut = mDiag.outliers - mDiag.outliersInBox;
+                const double p = nOut > 0 ? static_cast<double>(mDiag.outliersInBox + oOut) / (nBox + nOut) : 0.0;
+                const double se = std::sqrt(std::max(p * (1.0 - p), 1e-9) * (1.0 / nBox + 1.0 / std::max(nOut, 1)));
+                bContrast = nOut > 0 && (mfBoxOutlierRatio - rOut) / se >= dc.kfSwitchGeoZ;
+            }
+            else
+                bContrast = mfBoxOutlierRatio >= rOut + dc.kfSwitchGeoRel;
+            if(mfBoxOutlierRatio >= dc.kfSwitchGeo && bContrast)
             {
                 mnLastDynFrameId = static_cast<long>(mCurrentFrame.mnId);
                 mnLastGeoFrameId = mnLastDynFrameId;
