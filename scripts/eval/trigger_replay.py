@@ -11,7 +11,8 @@ The box holds only ~10-20 matched points, fr1_room's outlier ratio outside the b
 cap then blocks keyframes at the hardest part of the sequence and tracking is lost for ~3 s.
 A fixed margin ignores how many points the ratio is based on. The replacement tested here is a
 one-sided two-proportion z-test: inside ratio significantly above the outside ratio, given the
-point counts. With 10 points inside the needed margin is ~0.35; with 100 points ~0.12.
+point counts. At z=3.09 (outside ratio 0.45, 200 points outside) the needed margin is ~0.50 with
+10 points in the box and ~0.19 with 100.
 
 The replay re-runs the exact switch state machine of Tracking.cc (YOLO hit >= 5 %, short hold 30,
 geometric confirmations, long hold 150 after 2 confirmations) on the logged counts. It is exact up to
