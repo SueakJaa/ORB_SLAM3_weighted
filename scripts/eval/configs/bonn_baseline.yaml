@@ -35,6 +35,11 @@ variants:
                  DSLAM_KF_SWITCH_GEO: 0.3, DSLAM_KF_SWITCH_GEO_REL: 0.2, DSLAM_KF_SWITCH_GEO_KEEP: 150,
                  DSLAM_KF_SWITCH_GEO_MINCONF: 2,
                  DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1}
+  # v20 final method (z-test trigger, chosen on TUM only - thesis_z). Bonn = test set: run once, do not tune.
+  GEOK2Z_MF:    {DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10,
+                 DSLAM_KF_SWITCH_GEO: 0.3, DSLAM_KF_SWITCH_GEO_Z: 3.09, DSLAM_KF_SWITCH_GEO_KEEP: 150,
+                 DSLAM_KF_SWITCH_GEO_MINCONF: 2,
+                 DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1}
 
 sequences:
   - bonn_balloon

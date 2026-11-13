@@ -98,13 +98,23 @@ def summarize(cfg, rows):
         d["p_vs_baseline"] = None
         if v != base and b and len(d["_ate"]) >= 3 and len(b["_ate"]) >= 3:
             d["p_vs_baseline"] = mann_whitney_p(d["_ate"], b["_ate"])
+    # Holm-Bonferroni over the sequences of each variant (one family = one variant vs the baseline)
+    for v in {v for _, v in out}:
+        ps = sorted(((d["p_vs_baseline"], k) for k, d in out.items() if k[1] == v and d["p_vs_baseline"] is not None),
+                    key=lambda x: x[0])
+        m, run_max = len(ps), 0.0
+        for i, (p, k) in enumerate(ps):
+            run_max = max(run_max, min(1.0, (m - i) * p))
+            out[k]["p_holm"] = run_max
+    for d in out.values():
+        d.setdefault("p_holm", None)
     return out
 
 
 def write_tables(cfg, summ, seqs, variants, rep, rows=()):
     keys = ["sequence", "variant", "runs", "crashes", "fails", "ate_median", "ate_mean", "ate_std", "ate_q1",
             "ate_q3", "rpe_t_median", "rpe_r_median", "tracked_pct", "keyframes", "tracking_ms", "switch_on_pct",
-            "p_vs_baseline"]
+            "p_vs_baseline", "p_holm"]
     with open(os.path.join(rep, "summary.csv"), "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(keys)
@@ -118,14 +128,15 @@ def write_tables(cfg, summ, seqs, variants, rep, rows=()):
     L = [f"# {cfg['name']}", "",
          f"ATE: RMSE after SE(3) alignment (as `evo_ape -a`), in m. RPE: RMSE over {cfg['rpe_delta']:g} {unit}, "
          f"translation in m, rotation in deg. A run fails if ATE > {thr:g} m or it produced no trajectory. "
-         f"p: two-sided Mann-Whitney U test of ATE against **{base}** (p < 0.05 = significant). "
+         f"p: two-sided Mann-Whitney U test of ATE against **{base}** (p < 0.05 = significant); p Holm: the same "
+         f"after Holm-Bonferroni correction over all sequences of that variant (use this one for claims). "
          f"Tracked %: frames with a real pose estimate; frames ORB-SLAM3 spent RECENTLY_LOST (repeated "
          f"timestamps in its output) are not scored, as in the official TUM tools.", "",
          "![ATE per run](ate_box.png)", "", "![RPE per run](rpe_box.png)", ""]
     for s in seqs:
         L += [f"## {short(s)}", "",
-              "| Variant | Runs | Fails | ATE median | ATE mean ± std | ATE IQR | RPE trans | RPE rot | Tracked % | Keyframes | Track ms | p vs baseline |",
-              "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+              "| Variant | Runs | Fails | ATE median | ATE mean ± std | ATE IQR | RPE trans | RPE rot | Tracked % | Keyframes | Track ms | p vs baseline | p Holm |",
+              "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
         for v in variants:
             d = summ.get((s, v))
             if not d:
@@ -134,11 +145,13 @@ def write_tables(cfg, summ, seqs, variants, rep, rows=()):
             ptxt = "-" if p is None else (f"**{p:.4f}**" if p < 0.05 else f"{p:.4f}")
             if p is not None and p < 0.05:
                 ptxt += " better" if d["ate_median"] < summ[(s, base)]["ate_median"] else " worse"
+            ph = d["p_holm"]
+            htxt = "-" if ph is None else (f"**{ph:.4f}**" if ph < 0.05 else f"{ph:.4f}")
             L.append(f"| {v} | {d['runs']} | {d['fails']}" + (f" ({d['crashes']} crash)" if d["crashes"] else "") +
                      f" | {fnum(d['ate_median'])} | {fnum(d['ate_mean'])} ± {fnum(d['ate_std'])} | "
                      f"{fnum(d['ate_q1'])}–{fnum(d['ate_q3'])} | {fnum(d['rpe_t_median'])} | {fnum(d['rpe_r_median'], 2)} | "
                      f"{fnum(d['tracked_pct'], 1)} | "
-                     f"{fnum(d['keyframes'], 0)} | {fnum(d['tracking_ms'], 1)} | {ptxt} |")
+                     f"{fnum(d['keyframes'], 0)} | {fnum(d['tracking_ms'], 1)} | {ptxt} | {htxt} |")
         L += ["", f"![trajectories](traj_{s}.png)", "", f"![error over time](error_{s}.png)", ""]
     L += timing_table(rows, variants)
     with open(os.path.join(rep, "summary.md"), "w") as f:
@@ -296,7 +309,7 @@ def main():
         trajectory_figures(plt, cfg, rows, seqs, variants, rep)
     # console summary
     print(f"{'sequence':26s} {'variant':16s} {'n':>3s} {'fail':>5s} {'ATE med':>8s} {'RPE t':>8s} {'RPE r':>7s} "
-          f"{'track%':>7s} {'p':>7s}")
+          f"{'track%':>7s} {'p':>7s} {'p Holm':>7s}")
     for s in seqs:
         for v in variants:
             d = summ.get((s, v))
@@ -304,7 +317,7 @@ def main():
                 p = d["p_vs_baseline"]
                 print(f"{short(s):26s} {v:16s} {d['runs']:3d} {d['fails']:5d} {fnum(d['ate_median']):>8s} "
                       f"{fnum(d['rpe_t_median']):>8s} {fnum(d['rpe_r_median'], 2):>7s} {fnum(d['tracked_pct'], 1):>7s} "
-                      f"{fnum(p) if p is not None else '-':>7s}")
+                      f"{fnum(p) if p is not None else '-':>7s} {fnum(d['p_holm']) if d['p_holm'] is not None else '-':>7s}")
     print(f"report: {rep}/summary.md (+ figures)")
 
 
