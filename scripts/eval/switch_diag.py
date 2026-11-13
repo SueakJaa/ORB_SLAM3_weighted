@@ -265,7 +265,61 @@ def main():
         fig.tight_layout()
         fig.savefig(os.path.join(rep, f"switch_frames_{s_}.png"), dpi=110)
         plt.close(fig)
-    print(f"\nfigures: {rep}/switch_<sequence>.png and switch_frames_<sequence>.png")
+    runs_figure(cfg, root, rep, a.seq, metrics, thr, plt)
+    print(f"\nfigures: {rep}/switch_<sequence>.png, switch_frames_<sequence>.png, switch_runs_{a.seq}.png")
+
+
+def runs_figure(cfg, root, rep, s_, metrics, thr, plt):
+    """Every run of one sequence: error over time (switch-on shaded, lost frames in red) and, on a second
+    axis, the outlier ratio inside the YOLO boxes vs outside - the two numbers the geometric check compares."""
+    if s_ not in cfg["sequences"]:
+        return
+    gt = os.path.join(seq_dir(cfg, s_), "groundtruth.txt")
+    items = []
+    for v in cfg["variants"]:
+        vd = os.path.join(root, s_, v)
+        if not os.path.isdir(vd):
+            continue
+        for rd in sorted(x for x in os.listdir(vd) if x.startswith("run_")):
+            p = os.path.join(vd, rd)
+            n = int(rd.split("_")[1])
+            status, ate = metrics.get((s_, v, n), ("missing", None))
+            if ate is None or not os.path.exists(os.path.join(p, "diag_frames.csv")):
+                continue
+            items.append((v, n, ate, p))
+    if not items:
+        return
+    fig, axes = plt.subplots(len(items), 1, figsize=(9, 1.9 * len(items)), sharex=True, squeeze=False)
+    for ax, (v, n, ate, p) in zip(axes[:, 0], items):
+        rows = read_diag(os.path.join(p, "diag_frames.csv"))
+        t = np.array([r["t"] for r in rows])
+        t0 = t[0]
+        for a_, b in episodes(rows):
+            ax.axvspan(t[a_] - t0, t[b] - t0, color="#f2a541", alpha=0.3, linewidth=0)
+        _, det = tm.ate(gt, os.path.join(p, "traj.txt"), cfg["max_time_diff_s"], gt_kind=gt_kind(cfg, s_))
+        ax.plot(np.asarray(det["t"]) - t0, det["err"], color="#2f5d8a", linewidth=1.2)
+        lost = np.array([r["state"] != 2 for r in rows])
+        if lost.any():
+            ax.plot(t[lost] - t0, np.zeros(lost.sum()), "|", color="#c0392b", markersize=7)
+        ax.axhline(thr, color="#888888", linestyle="--", linewidth=0.8)
+        ax.set_ylim(0, max(0.3, float(np.max(det["err"])) * 1.05))
+        ax.set_ylabel("err [m]", fontsize=8)
+        ax.set_title(f"{v} run {n}  ATE {ate:.3f} m{'  FAILED' if ate > thr else ''}", fontsize=8, loc="left")
+        ax2 = ax.twinx()
+        ib = np.array([r["outliers_in_box"] + r["inliers_in_box"] for r in rows])
+        rin = np.where(ib >= 5, np.array([r["outliers_in_box"] for r in rows]) / np.maximum(ib, 1), np.nan)
+        ob = np.array([r["matched"] for r in rows]) - ib
+        rout = np.array([r["outliers"] - r["outliers_in_box"] for r in rows]) / np.maximum(ob, 1)
+        ax2.plot(t - t0, rout, color="#999999", linewidth=0.6)
+        ax2.plot(t - t0, rin, ".", color="#8e44ad", markersize=2)
+        ax2.set_ylim(0, 1)
+        ax2.set_ylabel("outlier ratio", fontsize=8)
+    axes[-1, 0].set_xlabel("time [s]")
+    fig.suptitle(f"{short(s_)} all runs - blue: position error, orange: switch on, red: not tracked, "
+                 f"purple dots: outlier ratio inside box, grey: outside", fontsize=9)
+    fig.tight_layout(rect=(0, 0, 1, 0.98))
+    fig.savefig(os.path.join(rep, f"switch_runs_{s_}.png"), dpi=110)
+    plt.close(fig)
 
 
 if __name__ == "__main__":
