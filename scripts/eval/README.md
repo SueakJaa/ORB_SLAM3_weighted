@@ -72,3 +72,9 @@ into this layout so they can be evaluated and plotted without re-running:
 ```bash
 python3 scripts/eval/import_legacy.py results_v16 scripts/eval/configs/thesis_main.yaml
 ```
+
+## Switch diagnosis (development plan, step 0)
+`switch_diag.py CONFIG [--seq freiburg1_room]` - how often the keyframe switch is on per sequence/variant,
+run by run for one sequence, and (for runs made with `DSLAM_DIAG=1`) whether failures happen right after the
+switch turned on, with figures of error over time and the camera image at each switch-on.
+`configs/diag_fr1room.yaml` - 40 diagnostic runs (fr1_room, fr1_desk, fr1_360, walking_xyz; GEOK2_G10 vs GEOK2_MF).
