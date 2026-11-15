@@ -3,6 +3,8 @@
 
 Usage (from ~/ORB_SLAM3), after evaluate.py:
     python3 scripts/eval/report.py scripts/eval/configs/baseline_tum_dynamic.yaml
+    python3 scripts/eval/report.py CONFIG --baseline GEOK2Z_MF    # p values against another variant
+                                                                  # (tables only, written to summary_vs_<variant>.md)
 
 Writes into <results_root>/<experiment>/report/:
     summary.md         tables per sequence (ATE, RPE, failures, keyframes, timing) + significance vs baseline
@@ -281,9 +283,17 @@ def trajectory_figures(plt, cfg, rows, seqs, variants, rep):
 
 
 def main():
-    if len(sys.argv) != 2:
+    args = sys.argv[1:]
+    other = None
+    if "--baseline" in args:
+        k = args.index("--baseline")
+        other = args[k + 1] if k + 1 < len(args) else None
+        args = args[:k] + args[k + 2:]
+    if len(args) != 1 or (other is None and "--baseline" in sys.argv):
         sys.exit(__doc__)
-    cfg = load_config(sys.argv[1])
+    cfg = load_config(args[0])
+    if other:
+        cfg = dict(cfg, baseline=other)
     root = exp_dir(cfg)
     mpath = os.path.join(root, "metrics.csv")
     if not os.path.exists(mpath):
@@ -294,14 +304,26 @@ def main():
     variants = [v for v in cfg["variants"] if v in present] + sorted(present - set(cfg["variants"]))
     rep = os.path.join(root, "report")
     os.makedirs(rep, exist_ok=True)
+    if other and other not in present:
+        sys.exit(f"variant {other} not in {mpath}")
     summ = summarize(cfg, rows)
-    write_tables(cfg, summ, seqs, variants, rep, rows)
+    if other:
+        # comparison against another variant: tables only, the main summary.md and figures stay untouched
+        sub = os.path.join(rep, f"vs_{other}")
+        os.makedirs(sub, exist_ok=True)
+        write_tables(cfg, summ, seqs, variants, sub, rows)
+        print(f"p values against {other} (summary in {sub}/summary.md)")
+    else:
+        write_tables(cfg, summ, seqs, variants, rep, rows)
     try:
+        if other:
+            raise ImportError("figures only for the main report")
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-    except ImportError:
-        print("matplotlib missing - tables written, figures skipped (pip install matplotlib)")
+    except ImportError as e:
+        if not other:
+            print("matplotlib missing - tables written, figures skipped (pip install matplotlib)")
     else:
         style(plt)
         box_figure(plt, cfg, rows, seqs, variants, "ate_rmse", "ATE RMSE [m]", os.path.join(rep, "ate_box.png"))
