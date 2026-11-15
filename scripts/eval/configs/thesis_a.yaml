@@ -1,0 +1,62 @@
+# v21 / Item A: per-point depth evidence in the map filter (DSLAM_MAP_DEPTH_TEST).
+# Goal: the remaining cost on seated people (sitting_xyz 0.0102 vs 0.0095 m for ORB-SLAM3, significant) without
+# losing the walking gains. The depth band (0.5 m around the person) now only marks CANDIDATES; a candidate stays
+# out of the map only if its depth disagrees with a frame GAP frames earlier (Kinect noise s(z) = 1.425e-3 z^2,
+# k = 3, + 2 cm for pose error). Development set = TUM only. fr1_* are left out: the switch is never on there
+# (thesis_z), so the test never runs and results would be identical.
+#
+# A0_orbslam3 and GEOK2Z_MF are copied from thesis_z (same code path: DEPTH_TEST=0). From ~/ORB_SLAM3:
+#   for s in results/thesis_z/freiburg*; do q=$(basename $s); grep -q "$q" scripts/eval/configs/thesis_a.yaml || continue
+#     mkdir -p results/thesis_a/$q; for v in A0_orbslam3 GEOK2Z_MF; do cp -rn $s/$v results/thesis_a/$q/; done; done
+#   quick check (15 runs):
+#   python3 scripts/eval/run_experiments.py scripts/eval/configs/thesis_a.yaml --runs 5 --variant GEOK2Z_MFD30 \
+#       --seq freiburg3_sitting_xyz --seq freiburg3_walking_xyz --seq freiburg3_walking_rpy
+#   full (160 runs):
+#   python3 scripts/eval/run_experiments.py scripts/eval/configs/thesis_a.yaml
+#   python3 scripts/eval/evaluate.py        scripts/eval/configs/thesis_a.yaml
+#   python3 scripts/eval/report.py          scripts/eval/configs/thesis_a.yaml
+#   python3 scripts/eval/switch_diag.py     scripts/eval/configs/thesis_a.yaml --seq freiburg3_sitting_xyz
+name: thesis_a
+runs: 10
+orbslam_root: ~/ORB_SLAM3
+data_root: ~/datasets
+results_root: results
+fail_threshold_m: 0.1
+
+common_env:
+  DSLAM_MODE: baseline
+  DSLAM_CHI2_GATE: raw
+  DSLAM_LABELS: opt
+  DSLAM_KERNEL: huber
+  DSLAM_IGNORE: ""
+  DSLAM_KF_SEMANTIC: 0
+  DSLAM_DIAG: 0
+  DSLAM_KF_CAP_BYPASS: 0
+
+baseline: A0_orbslam3
+variants:
+  A0_orbslam3:  {DSLAM_KF_SWITCH: 0, DSLAM_KF_MIN_GAP: 0, DSLAM_MAP_FILTER: 0}
+  GEOK2Z_MF:    {DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10,
+                 DSLAM_KF_SWITCH_GEO: 0.3, DSLAM_KF_SWITCH_GEO_Z: 3.09, DSLAM_KF_SWITCH_GEO_KEEP: 150,
+                 DSLAM_KF_SWITCH_GEO_MINCONF: 2,
+                 DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1}
+  GEOK2Z_MFD30: {DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10,
+                 DSLAM_KF_SWITCH_GEO: 0.3, DSLAM_KF_SWITCH_GEO_Z: 3.09, DSLAM_KF_SWITCH_GEO_KEEP: 150,
+                 DSLAM_KF_SWITCH_GEO_MINCONF: 2,
+                 DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1,
+                 DSLAM_MAP_DEPTH_TEST: 1, DSLAM_MAP_DEPTH_GAP: 30}
+  GEOK2Z_MFD15: {DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10,
+                 DSLAM_KF_SWITCH_GEO: 0.3, DSLAM_KF_SWITCH_GEO_Z: 3.09, DSLAM_KF_SWITCH_GEO_KEEP: 150,
+                 DSLAM_KF_SWITCH_GEO_MINCONF: 2,
+                 DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1,
+                 DSLAM_MAP_DEPTH_TEST: 1, DSLAM_MAP_DEPTH_GAP: 15}
+
+sequences:
+  - freiburg3_sitting_xyz
+  - freiburg3_sitting_static
+  - freiburg3_sitting_halfsphere
+  - freiburg2_desk_with_person
+  - freiburg3_walking_xyz
+  - freiburg3_walking_static
+  - freiburg3_walking_halfsphere
+  - freiburg3_walking_rpy

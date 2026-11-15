@@ -80,6 +80,11 @@ public:
     long   mnSwActive = 0;   // ... of which with the switch on
     long   mnCapBlocked = 0; // keyframe requests blocked by the cap (DSLAM_KF_MIN_GAP)
     long   mnCapBypassed = 0;// ... let through because tracking was weak (DSLAM_KF_CAP_BYPASS)
+    // DSLAM_MAP_DEPTH_TEST: depth images + poses of the last frames, and what the test decided
+    struct DepthHistory { unsigned long id; Sophus::SE3f Tcw; cv::Mat depth; };
+    std::deque<DepthHistory> mDepthHist;
+    long   mnDepthCand = 0, mnDepthStatic = 0, mnDepthMoved = 0, mnDepthUnknown = 0;
+    void   DepthTestForMap();
     // per-module timing of GrabImageRGBD [ms per frame], printed as [Timing] at shutdown
     std::vector<float> mvTimeOrbMs, mvTimeYoloMs, mvTimeTrackMs, mvTimeTotalMs;
     void PrintDynamicStats();

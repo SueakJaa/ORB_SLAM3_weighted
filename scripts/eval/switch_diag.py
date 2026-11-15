@@ -13,6 +13,8 @@ Part 1, every experiment - per sequence and variant:
   det%            frames where YOLO found a person/vehicle box
   switch%         frames with the keyframe switch on (mean over runs, and min-max)
   tri filt%       LocalMapping triangulation candidates rejected by the map filter
+  depth static%   (v21 depth test) share of depth-band points judged static and let into the map;
+  unknown%        ... with no evidence (outside the old image, no depth there)
   and, for --seq (default freiburg1_room), one line per run, so failed runs can be compared with good ones.
 
 Part 2, only runs with diag_frames.csv:
@@ -55,6 +57,10 @@ def stats_of(rd):
     m = re.search(r"triangulation_candidates=(\d+) triangulation_filtered=(\d+)", s)
     if m and int(m.group(1)):
         out["tri"] = 100 * int(m.group(2)) / int(m.group(1))
+    m = re.search(r"depth_test_candidates=(\d+) depth_static=(\d+) depth_moved=(\d+) depth_unknown=(\d+)", s)
+    if m and int(m.group(1)):
+        out["dstat"] = 100 * int(m.group(2)) / int(m.group(1))
+        out["dunk"] = 100 * int(m.group(4)) / int(m.group(1))
     m = re.search(r"cap_blocked=(\d+)", s)
     if m:
         out["blocked"] = int(m.group(1))
@@ -121,7 +127,7 @@ def main():
     # ---------------- part 1 ----------------
     print(f"\n=== Part 1: switch activity per sequence ({root}) ===")
     print(f"{'sequence':22s} {'variant':12s} {'runs':>4s} {'failed':>6s} {'ATE med':>8s} {'det%':>6s} "
-          f"{'switch% mean (min-max)':>24s} {'tri filt%':>9s}")
+          f"{'switch% mean (min-max)':>24s} {'tri filt%':>9s} {'depth static%':>13s} {'unknown%':>8s}")
     have_diag = False
     for s_ in cfg["sequences"]:
         for v in cfg["variants"]:
@@ -146,7 +152,8 @@ def main():
             sw = f"{mean(sws):6.1f} ({min(sws):.1f}-{max(sws):.1f})" if sws else "-"
             print(f"{short(s_):22s} {v:12s} {len(rs):4d} {sum(x['failed'] for x in rs):6d} "
                   f"{st.median(ates) if ates else float('nan'):8.3f} {mean([x['det'] for x in rs if 'det' in x]):6.1f} "
-                  f"{sw:>24s} {mean([x['tri'] for x in rs if 'tri' in x]):9.1f}")
+                  f"{sw:>24s} {mean([x['tri'] for x in rs if 'tri' in x]):9.1f} "
+                  f"{mean([x['dstat'] for x in rs if 'dstat' in x]):13.1f} {mean([x['dunk'] for x in rs if 'dunk' in x]):8.1f}")
     if a.seq in cfg["sequences"]:
         print(f"\n--- {short(a.seq)} run by run ---")
         print(f"{'variant':12s} {'run':>3s} {'status':>6s} {'ATE':>7s} {'switch%':>8s} {'det%':>6s} {'cap_blocked':>11s}")

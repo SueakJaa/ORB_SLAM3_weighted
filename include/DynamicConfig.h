@@ -133,6 +133,18 @@ struct DynamicConfig
                                        // -1 auto (mode 1: yes; mode 2: only if the switch is on - it never is at start)
     float       mapFilterDepth = 0.0f; // DSLAM_MAP_FILTER_DEPTH: keep only points within this depth [m] of the
                                        // person out of the map (0 = the whole box)
+    // v21 (Item A): per-point depth evidence. The depth band only says WHERE a person is; this asks whether the
+    // point has MOVED. Each band point is back-projected with the current pose, moved into a frame
+    // DSLAM_MAP_DEPTH_GAP frames earlier and its predicted depth compared with the depth measured there.
+    // Consistent (|z_pred - z_meas| <= K * sqrt(s(z_pred)^2 + s(z_meas)^2) + POSE, s(z) = 1.425e-3 z^2,
+    // Kinect axial noise) = static -> the point may enter the map. Inconsistent = moved -> kept out.
+    int         mapDepthTest = 0;      // DSLAM_MAP_DEPTH_TEST: 1 = on (needs DSLAM_MAP_FILTER and a depth band)
+    int         mapDepthGap  = 30;     // DSLAM_MAP_DEPTH_GAP: frames back (30 = 1 s at 30 Hz; a walking person
+                                       // moves more than a body width, a seated one stays)
+    float       mapDepthK    = 3.0f;   // DSLAM_MAP_DEPTH_K: noise multiplier
+    float       mapDepthPose = 0.02f;  // DSLAM_MAP_DEPTH_POSE: allowance for pose error [m]
+    int         mapDepthKeepUnknown = 0; // DSLAM_MAP_DEPTH_KEEP_UNKNOWN: no evidence (outside the old image,
+                                       // no depth there, no old frame yet): 0 = keep out (band decides), 1 = allow
 
     bool UseYOLO()     const { return mode == YOLO || mode == PROPOSED; }
     bool UseGeometry() const { return mode == GEO  || mode == PROPOSED; }
@@ -249,6 +261,11 @@ private:
         if(const char* s = std::getenv("DSLAM_MAP_FILTER_DEPTH")) c.mapFilterDepth = std::stof(s);
         if(const char* s = std::getenv("DSLAM_MAP_FILTER_SITES")) c.mapFilterSites = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_MAP_FILTER_INIT")) c.mapFilterInit = std::atoi(s);
+        if(const char* s = std::getenv("DSLAM_MAP_DEPTH_TEST")) c.mapDepthTest = std::atoi(s);
+        if(const char* s = std::getenv("DSLAM_MAP_DEPTH_GAP"))  c.mapDepthGap  = std::max(1, std::atoi(s));
+        if(const char* s = std::getenv("DSLAM_MAP_DEPTH_K"))    c.mapDepthK    = std::stof(s);
+        if(const char* s = std::getenv("DSLAM_MAP_DEPTH_POSE")) c.mapDepthPose = std::stof(s);
+        if(const char* s = std::getenv("DSLAM_MAP_DEPTH_KEEP_UNKNOWN")) c.mapDepthKeepUnknown = std::atoi(s);
 
         std::cout << "[DynamicConfig] mode=" << c.ModeName()
                   << " sigma=" << c.sigma
@@ -269,7 +286,9 @@ private:
                   << ",geo_pts=" << c.kfSwitchGeoPts << ",geo_z=" << c.kfSwitchGeoZ << ",geo_keep=" << c.kfSwitchGeoKeep << ",geo_minconf=" << c.kfSwitchGeoMinConf << ")"
                   << " kf_min_gap=" << c.kfMinGap << " kf_cap_bypass=" << c.kfCapBypass
                   << " diag=" << c.diag
-                  << " map_filter=" << c.mapFilter << "(depth " << c.mapFilterDepth << ", sites " << c.mapFilterSites << ", init " << c.mapFilterInit << ")" << std::endl;
+                  << " map_filter=" << c.mapFilter << "(depth " << c.mapFilterDepth << ", sites " << c.mapFilterSites << ", init " << c.mapFilterInit << ")"
+                  << " map_depth_test=" << c.mapDepthTest << "(gap " << c.mapDepthGap << ", k " << c.mapDepthK
+                  << ", pose " << c.mapDepthPose << ", keep_unknown " << c.mapDepthKeepUnknown << ")" << std::endl;
         return c;
     }
 };

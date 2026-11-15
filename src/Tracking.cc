@@ -1651,6 +1651,14 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
     mvTimeTrackMs.push_back(std::chrono::duration<float, std::milli>(tTrack1 - tTrack0).count());
     mvTimeTotalMs.push_back(std::chrono::duration<float, std::milli>(tTrack1 - tGrab0).count());
 
+    // DSLAM_MAP_DEPTH_TEST: remember this frame's depth and pose (only well-tracked frames)
+    if(DynamicConfig::Get().mapDepthTest && mState == OK && mCurrentFrame.HasPose())
+    {
+        mDepthHist.push_back({mCurrentFrame.mnId, mCurrentFrame.GetPose(), imDepth.clone()});
+        while(mDepthHist.size() > static_cast<size_t>(DynamicConfig::Get().mapDepthGap))
+            mDepthHist.pop_front();
+    }
+
     return mCurrentFrame.GetPose();
 }
 
@@ -3589,6 +3597,9 @@ void Tracking::CreateNewKeyFrame()
     if(!mpLocalMapper->SetNotStop(true))
         return;
 
+    // DSLAM_MAP_DEPTH_TEST: decide per point whether the person's points really moved (before the copy)
+    if(DynamicConfig::Get().mapDepthTest && DynamicConfig::Get().mapFilter && mbKfRuleActive)
+        DepthTestForMap();
     KeyFrame* pKF = new KeyFrame(mCurrentFrame,mpAtlas->GetCurrentMap(),mpKeyFrameDB);
     // DSLAM_MAP_FILTER=2: keep people out of the map only while they are confirmed moving
     pKF->mbFilterDynamic = DynamicConfig::Get().mapFilter != 2 || mbKfRuleActive;
@@ -4573,7 +4584,74 @@ void Tracking::PrintDynamicStats()
         std::cout << " triangulation_candidates=" << mpLocalMapper->mnTriCandidates
                   << " triangulation_filtered=" << mpLocalMapper->mnTriFiltered
                   << " triangulated=" << mpLocalMapper->mnTriCreated;
+    if(c.mapDepthTest)
+        std::cout << " depth_test_candidates=" << mnDepthCand << " depth_static=" << mnDepthStatic
+                  << " depth_moved=" << mnDepthMoved << " depth_unknown=" << mnDepthUnknown;
     std::cout << std::endl;
+}
+
+void Tracking::DepthTestForMap()
+{
+    // Item A: the depth band marks points near a confirmed-moving person (mvbDynamicMap). Keep out only
+    // those that disagree with an older depth image; static parts (a seated person's torso, a chair the
+    // person stands next to) may enter the map again. Same idea as DynaSLAM's multi-view depth check.
+    const DynamicConfig& dc = DynamicConfig::Get();
+    if(!mCurrentFrame.HasPose() || mCurrentFrame.mvbDynamicMap.empty())
+        return;
+    const DepthHistory* old = nullptr;
+    if(!mDepthHist.empty() && mCurrentFrame.mnId >= mDepthHist.front().id + static_cast<unsigned long>(std::max(1, dc.mapDepthGap / 2)))
+        old = &mDepthHist.front();   // oldest kept frame, about mapDepthGap frames back
+    const auto sigma = [](float z) { return 1.425e-3f * z * z; };
+    const int nKeys = (mCurrentFrame.Nleft == -1) ? mCurrentFrame.N : mCurrentFrame.Nleft;
+    for(int i = 0; i < nKeys; i++)
+    {
+        if(!mCurrentFrame.mvbDynamicMap[i] || mCurrentFrame.mvDepth[i] <= 0)
+            continue;
+        mnDepthCand++;
+        bool bKnown = false, bStatic = false;
+        Eigen::Vector3f xw;
+        if(old && mCurrentFrame.UnprojectStereo(i, xw))
+        {
+            const Eigen::Vector3f xo = old->Tcw * xw;
+            const float zp = xo(2);
+            if(zp > 0.1f)
+            {
+                const int u = static_cast<int>(std::lround(Frame::fx * xo(0) / zp + Frame::cx));
+                const int v = static_cast<int>(std::lround(Frame::fy * xo(1) / zp + Frame::cy));
+                float best = -1.0f;   // measured depth in a 3x3 window closest to the prediction
+                for(int dv = -1; dv <= 1; dv++)
+                    for(int du = -1; du <= 1; du++)
+                    {
+                        const int uu = u + du, vv = v + dv;
+                        if(uu < 0 || vv < 0 || uu >= old->depth.cols || vv >= old->depth.rows)
+                            continue;
+                        const float d = old->depth.at<float>(vv, uu);
+                        if(d > 0.0f && std::isfinite(d) && (best < 0.0f || std::fabs(d - zp) < std::fabs(best - zp)))
+                            best = d;
+                    }
+                if(best > 0.0f)
+                {
+                    bKnown = true;
+                    const float tol = dc.mapDepthK * std::sqrt(sigma(zp) * sigma(zp) + sigma(best) * sigma(best))
+                                      + dc.mapDepthPose;
+                    bStatic = std::fabs(best - zp) <= tol;
+                }
+            }
+        }
+        if(!bKnown)
+        {
+            mnDepthUnknown++;
+            if(dc.mapDepthKeepUnknown)
+                mCurrentFrame.mvbDynamicMap[i] = false;
+        }
+        else if(bStatic)
+        {
+            mnDepthStatic++;
+            mCurrentFrame.mvbDynamicMap[i] = false;
+        }
+        else
+            mnDepthMoved++;
+    }
 }
 
 void Tracking::WriteDiagLine(bool bNeedKF)
