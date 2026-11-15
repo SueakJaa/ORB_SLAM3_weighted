@@ -142,6 +142,8 @@ struct DynamicConfig
     int         mapDepthGap  = 30;     // DSLAM_MAP_DEPTH_GAP: frames back (30 = 1 s at 30 Hz; a walking person
                                        // moves more than a body width, a seated one stays)
     float       mapDepthK    = 3.0f;   // DSLAM_MAP_DEPTH_K: noise multiplier
+    int         mapDepthViews = 1;     // DSLAM_MAP_DEPTH_VIEWS: 1 = the frame GAP back; 2 = also GAP/2 back, static
+                                       // only if both agree
     float       mapDepthPose = 0.02f;  // DSLAM_MAP_DEPTH_POSE: allowance for pose error [m]
     int         mapDepthKeepUnknown = 0; // DSLAM_MAP_DEPTH_KEEP_UNKNOWN: no evidence (outside the old image,
                                        // no depth there, no old frame yet): 0 = keep out (band decides), 1 = allow
@@ -264,6 +266,7 @@ private:
         if(const char* s = std::getenv("DSLAM_MAP_DEPTH_TEST")) c.mapDepthTest = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_MAP_DEPTH_GAP"))  c.mapDepthGap  = std::max(1, std::atoi(s));
         if(const char* s = std::getenv("DSLAM_MAP_DEPTH_K"))    c.mapDepthK    = std::stof(s);
+        if(const char* s = std::getenv("DSLAM_MAP_DEPTH_VIEWS")) c.mapDepthViews = std::max(1, std::atoi(s));
         if(const char* s = std::getenv("DSLAM_MAP_DEPTH_POSE")) c.mapDepthPose = std::stof(s);
         if(const char* s = std::getenv("DSLAM_MAP_DEPTH_KEEP_UNKNOWN")) c.mapDepthKeepUnknown = std::atoi(s);
 
@@ -287,7 +290,7 @@ private:
                   << " kf_min_gap=" << c.kfMinGap << " kf_cap_bypass=" << c.kfCapBypass
                   << " diag=" << c.diag
                   << " map_filter=" << c.mapFilter << "(depth " << c.mapFilterDepth << ", sites " << c.mapFilterSites << ", init " << c.mapFilterInit << ")"
-                  << " map_depth_test=" << c.mapDepthTest << "(gap " << c.mapDepthGap << ", k " << c.mapDepthK
+                  << " map_depth_test=" << c.mapDepthTest << "(gap " << c.mapDepthGap << ", views " << c.mapDepthViews << ", k " << c.mapDepthK
                   << ", pose " << c.mapDepthPose << ", keep_unknown " << c.mapDepthKeepUnknown << ")" << std::endl;
         return c;
     }

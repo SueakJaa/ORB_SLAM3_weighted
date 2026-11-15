@@ -4593,58 +4593,78 @@ void Tracking::PrintDynamicStats()
 void Tracking::DepthTestForMap()
 {
     // Item A: the depth band marks points near a confirmed-moving person (mvbDynamicMap). Keep out only
-    // those that disagree with an older depth image; static parts (a seated person's torso, a chair the
+    // those that disagree with older depth images; static parts (a seated person's torso, a chair the
     // person stands next to) may enter the map again. Same idea as DynaSLAM's multi-view depth check.
+    // DSLAM_MAP_DEPTH_VIEWS=2 also checks a frame half the gap back: a point counts as static only if EVERY
+    // checked view agrees (a person walking sideways can keep the same depth over one gap, rarely over two).
     const DynamicConfig& dc = DynamicConfig::Get();
-    if(!mCurrentFrame.HasPose() || mCurrentFrame.mvbDynamicMap.empty())
+    if(!mCurrentFrame.HasPose() || mCurrentFrame.mvbDynamicMap.empty() || mDepthHist.empty())
         return;
-    const DepthHistory* old = nullptr;
-    if(!mDepthHist.empty() && mCurrentFrame.mnId >= mDepthHist.front().id + static_cast<unsigned long>(std::max(1, dc.mapDepthGap / 2)))
-        old = &mDepthHist.front();   // oldest kept frame, about mapDepthGap frames back
+    std::vector<const DepthHistory*> views;
+    const unsigned long minAge = static_cast<unsigned long>(std::max(1, dc.mapDepthGap / 2));
+    if(mCurrentFrame.mnId >= mDepthHist.front().id + minAge)
+        views.push_back(&mDepthHist.front());   // oldest kept frame, about mapDepthGap frames back
+    if(dc.mapDepthViews >= 2 && !views.empty())
+    {
+        const DepthHistory* mid = &mDepthHist.at(mDepthHist.size() / 2);
+        if(mid != views.front() && mCurrentFrame.mnId >= mid->id + std::max(1UL, minAge / 2))
+            views.push_back(mid);
+        else
+            views.clear();   // not enough history yet for both views: no evidence
+    }
     const auto sigma = [](float z) { return 1.425e-3f * z * z; };
+    // -1 = no evidence, 0 = moved, 1 = static
+    const auto check = [&](const DepthHistory* h, const Eigen::Vector3f& xw) -> int
+    {
+        const Eigen::Vector3f xo = h->Tcw * xw;
+        const float zp = xo(2);
+        if(zp <= 0.1f)
+            return -1;
+        const int u = static_cast<int>(std::lround(Frame::fx * xo(0) / zp + Frame::cx));
+        const int v = static_cast<int>(std::lround(Frame::fy * xo(1) / zp + Frame::cy));
+        float best = -1.0f;   // measured depth in a 3x3 window closest to the prediction
+        for(int dv = -1; dv <= 1; dv++)
+            for(int du = -1; du <= 1; du++)
+            {
+                const int uu = u + du, vv = v + dv;
+                if(uu < 0 || vv < 0 || uu >= h->depth.cols || vv >= h->depth.rows)
+                    continue;
+                const float d = h->depth.at<float>(vv, uu);
+                if(d > 0.0f && std::isfinite(d) && (best < 0.0f || std::fabs(d - zp) < std::fabs(best - zp)))
+                    best = d;
+            }
+        if(best <= 0.0f)
+            return -1;
+        const float tol = dc.mapDepthK * std::sqrt(sigma(zp) * sigma(zp) + sigma(best) * sigma(best)) + dc.mapDepthPose;
+        return std::fabs(best - zp) <= tol ? 1 : 0;
+    };
     const int nKeys = (mCurrentFrame.Nleft == -1) ? mCurrentFrame.N : mCurrentFrame.Nleft;
     for(int i = 0; i < nKeys; i++)
     {
         if(!mCurrentFrame.mvbDynamicMap[i] || mCurrentFrame.mvDepth[i] <= 0)
             continue;
         mnDepthCand++;
-        bool bKnown = false, bStatic = false;
+        int verdict = -1;   // static only if every view is known and static; moved if any view says moved
         Eigen::Vector3f xw;
-        if(old && mCurrentFrame.UnprojectStereo(i, xw))
+        if(!views.empty() && mCurrentFrame.UnprojectStereo(i, xw))
         {
-            const Eigen::Vector3f xo = old->Tcw * xw;
-            const float zp = xo(2);
-            if(zp > 0.1f)
+            int nStatic = 0;
+            bool bMoved = false;
+            for(const DepthHistory* h : views)
             {
-                const int u = static_cast<int>(std::lround(Frame::fx * xo(0) / zp + Frame::cx));
-                const int v = static_cast<int>(std::lround(Frame::fy * xo(1) / zp + Frame::cy));
-                float best = -1.0f;   // measured depth in a 3x3 window closest to the prediction
-                for(int dv = -1; dv <= 1; dv++)
-                    for(int du = -1; du <= 1; du++)
-                    {
-                        const int uu = u + du, vv = v + dv;
-                        if(uu < 0 || vv < 0 || uu >= old->depth.cols || vv >= old->depth.rows)
-                            continue;
-                        const float d = old->depth.at<float>(vv, uu);
-                        if(d > 0.0f && std::isfinite(d) && (best < 0.0f || std::fabs(d - zp) < std::fabs(best - zp)))
-                            best = d;
-                    }
-                if(best > 0.0f)
-                {
-                    bKnown = true;
-                    const float tol = dc.mapDepthK * std::sqrt(sigma(zp) * sigma(zp) + sigma(best) * sigma(best))
-                                      + dc.mapDepthPose;
-                    bStatic = std::fabs(best - zp) <= tol;
-                }
+                const int r = check(h, xw);
+                if(r == 0) bMoved = true;
+                if(r == 1) nStatic++;
             }
+            verdict = bMoved ? 0 : (nStatic == static_cast<int>(views.size()) ? 1 : -1);
         }
-        if(!bKnown)
+        if(verdict == -1)
         {
             mnDepthUnknown++;
             if(dc.mapDepthKeepUnknown)
                 mCurrentFrame.mvbDynamicMap[i] = false;
         }
-        else if(bStatic)
+        else if(verdict == 1)
         {
             mnDepthStatic++;
             mCurrentFrame.mvbDynamicMap[i] = false;
