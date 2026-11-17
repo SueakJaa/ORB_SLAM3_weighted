@@ -2,6 +2,9 @@
 # Bonn: three sequences never used before (the 10 Bonn sequences in bonn_baseline are the TEST set and stay
 # untouched). moving_obstructing_box2 / synchronous2 match the two test sequences that still fail
 # (a box YOLO does not know; people jumping in sync); crowd3 checks a normal crowd.
+# 18 Nov: + placing_obstructing_box / removing_obstructing_box (also unused): first runs showed GEOK2Z_MF
+# already solves synchronous2 and crowd3, so the open problem is a large object YOLO does not know - three
+# box sequences instead of one, so the trigger is not tuned to a single video.
 # TUM: negatives (fr1_room, fr1_desk: nobody moves; sitting_xyz: seated people) and positives (walking).
 #
 # 1) offline scan with ground-truth poses (no SLAM runs needed, a few minutes):
@@ -40,6 +43,8 @@ variants:
 
 sequences:
   - bonn_moving_obstructing_box2
+  - bonn_placing_obstructing_box
+  - bonn_removing_obstructing_box
   - bonn_synchronous2
   - bonn_crowd3
   - freiburg3_walking_xyz
