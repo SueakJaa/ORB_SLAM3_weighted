@@ -21,7 +21,8 @@ Usage (from ~/ORB_SLAM3):
     python3 scripts/itemb/depth_motion_scan.py scripts/itemb/itemb_dev.yaml                # ground-truth poses
     python3 scripts/itemb/depth_motion_scan.py scripts/itemb/itemb_dev.yaml --pose GEOK2Z_MF  # poses of run 1
         of that variant in this experiment (needs run_experiments.py on the config first): the realistic case
-    options: --seq NAME (repeatable) --gap 10 --step 2 --scale 4 --k 3 --pose-tol 0.02 --min-area 1 --min-focus 0.5
+    options: --seq NAME (repeatable) --gap 10 --step 2 --scale 4 --k 3 --win 4 --pose-tol 0.02 --min-area 1
+             --min-focus 0.5   (--win 1 = the first version's 3x3 window, written to itemb_<pose>_win1/)
 Output in <results_root>/<experiment>/itemb_<pose>/:
     frames_<seq>.csv   per-frame numbers
     scan_<seq>.png     largest% and incons% over time, fire shaded
@@ -101,6 +102,24 @@ def poses_from(path, kind):
     return t, tm.to_se3(p, q)   # Twc
 
 
+def pose_at(ts, Tw, t, tol):
+    """Twc at time t, interpolated between the two neighbouring poses (translation linear, rotation slerp);
+    None if t is outside the poses or the neighbours are more than tol apart. Taking the NEAREST pose
+    instead gave false detections on slanted surfaces during fast camera motion (fr1_room)."""
+    from scipy.spatial.transform import Rotation, Slerp
+    i = int(np.searchsorted(ts, t))
+    if i <= 0 or i >= len(ts):
+        return None
+    t0, t1 = ts[i - 1], ts[i]
+    if t1 - t0 > tol:
+        return None
+    w = (t - t0) / (t1 - t0) if t1 > t0 else 0.0
+    T = np.eye(4)
+    T[:3, :3] = Slerp([0.0, 1.0], Rotation.from_matrix(Tw[i - 1:i + 1, :3, :3]))(w).as_matrix()
+    T[:3, 3] = (1 - w) * Tw[i - 1, :3, 3] + w * Tw[i, :3, 3]
+    return T
+
+
 def nearest(ts, t, tol):
     i = int(np.clip(np.searchsorted(ts, t), 1, len(ts) - 1))
     j = i if abs(ts[i] - t) < abs(ts[i - 1] - t) else i - 1
@@ -121,8 +140,9 @@ def scan_pair(Dt, Dr, T_rt, K, a):
     ur = np.rint(fx * Xr[..., 0] / zps + cx).astype(int)
     vr = np.rint(fy * Xr[..., 1] / zps + cy).astype(int)
     best = np.full(z.shape, np.nan)
-    for dv in (-1, 0, 1):          # measured depth in a 3x3 window closest to the prediction
-        for du in (-1, 0, 1):
+    offs = sorted({-a.win, -(a.win // 2), 0, a.win // 2, a.win})
+    for dv in offs:          # measured depth in a +-win pixel window closest to the prediction: a static
+        for du in offs:      # surface that is only slightly misaligned (slanted desk, ceiling) still matches
             uu, vv = ur + du, vr + dv
             inb = ok & (uu >= 0) & (vv >= 0) & (uu < Dr.shape[1]) & (vv < Dr.shape[0])
             d = np.full(z.shape, np.nan)
@@ -157,13 +177,15 @@ def main():
     ap.add_argument("--step", type=int, default=2, help="look at every n-th frame")
     ap.add_argument("--scale", type=int, default=4, help="pixel subsampling (4 -> 160x120)")
     ap.add_argument("--k", type=float, default=3.0)
+    ap.add_argument("--win", type=int, default=4, help="search radius in pixels in the earlier frame (1 = 3x3)")
+    ap.add_argument("--pose-gap", type=float, default=0.1, help="max time between two poses to interpolate [s]")
     ap.add_argument("--pose-tol", type=float, default=0.02)
     ap.add_argument("--min-area", type=float, default=1.0, help="largest region, %% of valid pixels")
     ap.add_argument("--min-focus", type=float, default=0.5)
     a = ap.parse_args()
     cfg = load_config(a.config)
     seqs = a.seq or cfg["sequences"]
-    out = os.path.join(exp_dir(cfg), f"itemb_{a.pose}")
+    out = os.path.join(exp_dir(cfg), f"itemb_{a.pose}" + (f"_win{a.win}" if a.win != 4 else ""))
     os.makedirs(out, exist_ok=True)
     import matplotlib
     matplotlib.use("Agg")
@@ -185,10 +207,10 @@ def main():
         rows, keep = [], []
         for t in range(a.gap, len(depth), a.step):
             ts, tr = depth[t][0], depth[t - a.gap][0]
-            i, j = nearest(pt, ts, 0.03), nearest(pt, tr, 0.03)
-            if i is None or j is None:
+            Ti, Tj = pose_at(pt, Tw, ts, a.pose_gap), pose_at(pt, Tw, tr, a.pose_gap)
+            if Ti is None or Tj is None:
                 continue
-            T_rt = np.linalg.inv(Tw[j]) @ Tw[i]
+            T_rt = np.linalg.inv(Tj) @ Ti
             Dt, Dr = read_depth(depth[t][1], factor), read_depth(depth[t - a.gap][1], factor)
             m, moved, largest, uv = scan_pair(Dt, Dr, T_rt, (fx, fy, cx, cy), a)
             m.update(t=ts - depth[0][0], frame=t,
@@ -236,7 +258,7 @@ def main():
         fig.suptitle(f"{short(s)}: red = disagrees with the frame {a.gap} back, yellow = largest region "
                      f"(poses: {a.pose})", fontsize=10)
         fig.tight_layout(), fig.savefig(os.path.join(out, f"masks_{s}.png"), dpi=100), plt.close(fig)
-    print(f"\nposes: {a.pose}, gap {a.gap} frames, fires if largest region >= {a.min_area} % and focus >= {a.min_focus}")
+    print(f"\nposes: {a.pose} (interpolated), window +-{a.win} px, gap {a.gap} frames, fires if largest region >= {a.min_area} % and focus >= {a.min_focus}")
     print(f"{'sequence':34s} {'frames':>6s} {'fires %':>8s} {'largest% med':>12s} {'p90':>6s} {'incons% med':>11s}")
     for s, n, fp, lm, l90, im in summary:
         print(f"{short(s):34s} {n:6d} {fp:8.1f} {lm:12.2f} {l90:6.2f} {im:11.2f}")
