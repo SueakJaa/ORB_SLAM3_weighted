@@ -77,12 +77,20 @@ def intrinsics(yaml_path):
 
 
 def read_list(d, name):
-    out = []
+    """(timestamp, path) of the images listed in depth.txt / rgb.txt that exist on disk. Some Bonn
+    sequences list images that are missing from the archive (as in bonn_static), so those are skipped."""
+    out, missing = [], 0
     with open(os.path.join(d, name)) as f:
         for line in f:
             if line.strip() and line[0] != "#":
                 ts, fn = line.split()[:2]
-                out.append((float(ts), os.path.join(d, fn)))
+                path = os.path.join(d, fn)
+                if os.path.exists(path):
+                    out.append((float(ts), path))
+                else:
+                    missing += 1
+    if missing:
+        print(f"  {os.path.basename(d)}/{name}: {missing} listed images missing, skipped")
     return out
 
 
