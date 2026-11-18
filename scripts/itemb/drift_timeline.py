@@ -70,7 +70,7 @@ def main():
         ig, ie = tm.associate(tg, te, cfg["max_time_diff_s"])
         t = te[ie]
         Gm, Em = G[ig], E[ie]
-        drift_t, drift_r, tt = [], [], []
+        drift_t, drift_r, tt, mv = [], [], [], []
         for k in range(len(t)):
             j = int(np.searchsorted(t, t[k] + a.dt))
             if j >= len(t) or t[j] - t[k] > 1.5 * a.dt:
@@ -78,17 +78,23 @@ def main():
             dG = np.linalg.inv(Gm[k]) @ Gm[j]
             dE = np.linalg.inv(Em[k]) @ Em[j]
             err = np.linalg.inv(dG) @ dE
+            rot = lambda M: np.degrees(np.arccos(np.clip((np.trace(M[:3, :3]) - 1) / 2, -1, 1)))
+            mv.append((100 * np.linalg.norm(dG[:3, 3]), rot(dG), 100 * np.linalg.norm(dE[:3, 3]), rot(dE)))
             drift_t.append(100 * np.linalg.norm(err[:3, 3]))
             drift_r.append(np.degrees(np.arccos(np.clip((np.trace(err[:3, :3]) - 1) / 2, -1, 1))))
             tt.append(t[k])
         tt, drift_t, drift_r = np.array(tt), np.array(drift_t), np.array(drift_r)
         diag = read_diag(os.path.join(rd, "diag_frames.csv"))
-        rows.append((v, tt, drift_t, drift_r, diag))
+        # stretches without evaluation: no ground-truth pose (or no estimate) near the frame times
+        gaps = [(t[k], t[k + 1]) for k in range(len(t) - 1) if t[k + 1] - t[k] > 0.1]
+        rows.append((v, tt, drift_t, drift_r, diag, mv, gaps))
     if not rows:
         sys.exit("nothing to plot")
     t0 = min(r[1][0] for r in rows if len(r[1]))
     fig, axes = plt.subplots(len(rows), 1, figsize=(10, 2.6 * len(rows)), sharex=True, squeeze=False)
-    for ax, (v, tt, dtr, drr, diag) in zip(axes[:, 0], rows):
+    for ax, (v, tt, dtr, drr, diag, mv, gaps) in zip(axes[:, 0], rows):
+        for g0, g1 in gaps:
+            ax.axvspan(g0 - t0, g1 - t0, color="#bbbbbb", alpha=0.5, linewidth=0, zorder=0)
         ts = np.array(sorted(diag))
         if len(ts):
             on = np.array([diag[x].get("kf_rule_active", 0) >= 1 for x in ts])
@@ -115,21 +121,28 @@ def main():
                 h2, l2 = ax2.get_legend_handles_labels()
                 ax.legend(h1 + h2, l1 + l2, fontsize=7, loc="upper left", ncol=4)
         # five worst moments, at least 1 s apart
-        print(f"\n{v} run {a.run}: worst moments (drift over {a.dt:g} s)")
-        print(f"{'time s':>7s} {'drift cm':>9s} {'rot deg':>8s} {'switch':>6s} {'depth reg%':>10s} {'YOLO%':>6s} {'inliers':>8s} {'kf':>3s}")
+        total = sum(g1 - g0 for g0, g1 in gaps)
+        print(f"\n{v} run {a.run}: {len(gaps)} stretches without ground truth/estimate, {total:.1f} s in total"
+              + "".join(f"\n    {g0 - t0:5.1f} - {g1 - t0:5.1f} s" for g0, g1 in gaps if g1 - g0 > 0.3))
+        print(f"worst moments (drift over {a.dt:g} s); GT moved / est moved = how far each says the camera went")
+        print(f"{'time s':>7s} {'drift cm':>9s} {'rot deg':>8s} | {'GT moved cm/deg':>15s} {'est moved cm/deg':>16s} | "
+              f"{'switch':>6s} {'depth reg%':>10s} {'YOLO%':>6s} {'inliers':>8s} {'kf':>3s}")
         order, used = np.argsort(-dtr), []
         for k in order:
             if any(abs(tt[k] - u) < 1.0 for u in used):
                 continue
             used.append(tt[k])
             d = diag.get(round(tt[k], 4)) or (diag[ts[int(np.argmin(np.abs(ts - tt[k])))]] if len(ts) else {})
-            print(f"{tt[k] - t0:7.1f} {dtr[k]:9.1f} {drr[k]:8.1f} {int(d.get('kf_rule_active', -1)):6d} "
+            gm, gr, em, er = mv[k]
+            print(f"{tt[k] - t0:7.1f} {dtr[k]:9.1f} {drr[k]:8.1f} | {gm:8.1f}/{gr:5.1f}  {em:9.1f}/{er:5.1f}  | "
+                  f"{int(d.get('kf_rule_active', -1)):6d} "
                   f"{100 * d.get('dt_largest', float('nan')):10.1f} {100 * d.get('yolo_frac', float('nan')):6.1f} "
                   f"{int(d.get('inliers_track', -1)):8d} {int(d.get('kf_created', -1)):3d}")
             if len(used) == 5:
                 break
     axes[-1, 0].set_xlabel("time [s]")
-    fig.suptitle("local drift (no global alignment); orange = switch on; ticks = keyframes", fontsize=9)
+    fig.suptitle("local drift (no global alignment); orange = switch on; grey = no ground truth/estimate; ticks = keyframes",
+                 fontsize=9)
     fig.tight_layout(rect=(0, 0, 1, 0.97))
     rep = os.path.join(exp_dir(cfg), "report")
     os.makedirs(rep, exist_ok=True)
