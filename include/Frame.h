@@ -243,6 +243,9 @@ public:
     // DSLAM_MAP_FILTER_DEPTH only the points near the person's depth (background seen inside the box stays).
     std::vector<bool> mvbDynamicMap;
     bool IsDynamicMap(const size_t i) const { return i < mvbDynamicMap.size() && mvbDynamicMap[i]; }
+    // DSLAM_DEPTH_TRIG_TRACK: keypoints on a moving region found by the depth trigger; matching skips them
+    std::vector<bool> mvbIgnoreTrack;
+    bool IsIgnoredTrack(const size_t i) const { return i < mvbIgnoreTrack.size() && mvbIgnoreTrack[i]; }
     void RefineDynamicForMap(const std::vector<cv::Rect> &boxes, float depthMargin);
 
     // Corresponding stereo coordinate and depth for each keypoint.

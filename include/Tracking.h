@@ -89,7 +89,7 @@ public:
     void   DepthTriggerScan(const cv::Mat &imDepth);
     int    mnDepthTrigStreak = 0;     // hits in a row
     float  mfDepthTrigLargest = 0.0f; // largest region this frame, share of valid pixels
-    long   mnDepthTrigHits = 0, mnDepthTrigActive = 0, mnDepthTrigMarked = 0;
+    long   mnDepthTrigHits = 0, mnDepthTrigActive = 0, mnDepthTrigMarked = 0, mnDepthTrigIgnored = 0;
     // per-module timing of GrabImageRGBD [ms per frame], printed as [Timing] at shutdown
     std::vector<float> mvTimeOrbMs, mvTimeYoloMs, mvTimeTrackMs, mvTimeTotalMs;
     void PrintDynamicStats();

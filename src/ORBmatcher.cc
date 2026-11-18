@@ -276,7 +276,7 @@ namespace ORB_SLAM3
                         if(F.Nleft == -1){
                             const unsigned int realIdxF = vIndicesF[iF];
 
-                            if(vpMapPointMatches[realIdxF])
+                            if(vpMapPointMatches[realIdxF] || F.IsIgnoredTrack(realIdxF))
                                 continue;
 
                             const cv::Mat &dF = F.mDescriptors.row(realIdxF);

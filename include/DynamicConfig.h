@@ -153,6 +153,8 @@ struct DynamicConfig
     // PERSIST hits in a row the keyframe switch turns on (same hold as YOLO) and the region's keypoints are kept
     // out of the map. Chosen offline on development data only (scripts/itemb, 18 Nov): 3 %, 10 frames.
     int         depthTrig = 0;          // DSLAM_DEPTH_TRIG: 1 = on (needs DSLAM_KF_SWITCH=1)
+    int         depthTrigTrack = 0;     // DSLAM_DEPTH_TRIG_TRACK: 1 = while on, the region's keypoints are also
+                                        // ignored in tracking (matching skips them), not only kept out of the map
     int         yoloOff = 0;            // DSLAM_YOLO_OFF: 1 = never run YOLO (geometry-only trigger, ablation)
     int         depthTrigGap = 10;      // DSLAM_DEPTH_TRIG_GAP: frames back (1/3 s at 30 Hz)
     float       depthTrigArea = 3.0f;   // DSLAM_DEPTH_TRIG_AREA: largest region, % of valid pixels
@@ -284,6 +286,7 @@ private:
         if(const char* s = std::getenv("DSLAM_MAP_FILTER_INIT")) c.mapFilterInit = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_MAP_DEPTH_TEST")) c.mapDepthTest = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_DEPTH_TRIG"))         c.depthTrig        = std::atoi(s);
+        if(const char* s = std::getenv("DSLAM_DEPTH_TRIG_TRACK"))   c.depthTrigTrack   = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_YOLO_OFF"))           c.yoloOff          = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_DEPTH_TRIG_GAP"))     c.depthTrigGap     = std::max(1, std::atoi(s));
         if(const char* s = std::getenv("DSLAM_DEPTH_TRIG_AREA"))    c.depthTrigArea    = std::stof(s);
@@ -325,7 +328,7 @@ private:
                   << " yolo_off=" << c.yoloOff << " depth_trig=" << c.depthTrig << "(gap " << c.depthTrigGap << ", area " << c.depthTrigArea
                   << "%, focus " << c.depthTrigFocus << ", persist " << c.depthTrigPersist << ", scale "
                   << c.depthTrigScale << ", win " << c.depthTrigWin << ", k " << c.depthTrigK << ", pose "
-                  << c.depthTrigPose << ", dilate " << c.depthTrigDilate << ")" << std::endl;
+                  << c.depthTrigPose << ", dilate " << c.depthTrigDilate << ", track " << c.depthTrigTrack << ")" << std::endl;
         return c;
     }
 };

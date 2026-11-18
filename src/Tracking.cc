@@ -4601,7 +4601,7 @@ void Tracking::PrintDynamicStats()
                   << " triangulated=" << mpLocalMapper->mnTriCreated;
     if(c.depthTrig)
         std::cout << " depth_trigger_hits=" << mnDepthTrigHits << " depth_trigger_active=" << mnDepthTrigActive
-                  << " depth_trigger_marked=" << mnDepthTrigMarked;
+                  << " depth_trigger_marked=" << mnDepthTrigMarked << " depth_trigger_ignored=" << mnDepthTrigIgnored;
     if(c.mapDepthTest)
         std::cout << " depth_test_candidates=" << mnDepthCand << " depth_static=" << mnDepthStatic
                   << " depth_moved=" << mnDepthMoved << " depth_unknown=" << mnDepthUnknown;
@@ -4824,11 +4824,14 @@ void Tracking::DepthTriggerScan(const cv::Mat &imDepth)
     mnDepthTrigStreak = bHit ? mnDepthTrigStreak + 1 : 0;
     if(bHit)
         mnDepthTrigHits++;
-    // once the trigger is on, keep the region's keypoints out of the map (as the YOLO band does for people)
-    if(bHit && mnDepthTrigStreak >= dc.depthTrigPersist && dc.mapFilter)
+    // once the trigger is on, keep the region's keypoints out of the map (as the YOLO band does for people) and,
+    // with DSLAM_DEPTH_TRIG_TRACK, out of tracking too (a box filling the view otherwise drags the pose along)
+    if(bHit && mnDepthTrigStreak >= dc.depthTrigPersist && (dc.mapFilter || dc.depthTrigTrack))
     {
         if(mCurrentFrame.mvbDynamicMap.size() != static_cast<size_t>(mCurrentFrame.N))
             mCurrentFrame.mvbDynamicMap.assign(mCurrentFrame.N, false);
+        if(dc.depthTrigTrack)
+            mCurrentFrame.mvbIgnoreTrack.assign(mCurrentFrame.N, false);
         const int rad = (dc.depthTrigDilate + s - 1) / s;
         const int nKeys = (mCurrentFrame.Nleft == -1) ? mCurrentFrame.N : mCurrentFrame.Nleft;
         for(int i = 0; i < nKeys; i++)
@@ -4842,10 +4845,15 @@ void Tracking::DepthTriggerScan(const cv::Mat &imDepth)
                     const int nx = gx + dx, ny = gy + dy;
                     in = nx >= 0 && ny >= 0 && nx < W && ny < H && region[ny * W + nx];
                 }
-            if(in && !mCurrentFrame.mvbDynamicMap[i])
+            if(in && dc.mapFilter && !mCurrentFrame.mvbDynamicMap[i])
             {
                 mCurrentFrame.mvbDynamicMap[i] = true;
                 mnDepthTrigMarked++;
+            }
+            if(in && dc.depthTrigTrack)
+            {
+                mCurrentFrame.mvbIgnoreTrack[i] = true;
+                mnDepthTrigIgnored++;
             }
         }
     }

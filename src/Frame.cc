@@ -78,6 +78,7 @@ Frame::Frame(const Frame &frame)
     mDynamicConfidence = frame.mDynamicConfidence;
     mvbDynamic         = frame.mvbDynamic;
     mvbDynamicMap      = frame.mvbDynamicMap;
+    mvbIgnoreTrack     = frame.mvbIgnoreTrack;
 
     for(int i=0;i<FRAME_GRID_COLS;i++)
         for(int j=0; j<FRAME_GRID_ROWS; j++){
@@ -723,7 +724,7 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
                 const float distx = kpUn.pt.x-x;
                 const float disty = kpUn.pt.y-y;
 
-                if(fabs(distx)<factorX && fabs(disty)<factorY)
+                if(fabs(distx)<factorX && fabs(disty)<factorY && !IsIgnoredTrack(vCell[j]))
                     vIndices.push_back(vCell[j]);
             }
         }

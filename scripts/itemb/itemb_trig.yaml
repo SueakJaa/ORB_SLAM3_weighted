@@ -6,7 +6,11 @@
 #   GEOK2Z_MF      final method (YOLO + z-test), for comparison
 #   GEOK2Z_MF_DT   + depth trigger (YOLO OR depth can switch on)
 #   DT_ONLY        depth trigger only, YOLO never runs
-# 4 variants x 10 sequences x 5 runs = 200 runs (~3.5 h). Per-frame logs on (DSLAM_DIAG=1).
+#   GEOK2Z_MF_DTT / DT_ONLY_T  the same with DSLAM_DEPTH_TRIG_TRACK=1: the region's keypoints are also ignored in
+#                  tracking. Quick check 18 Nov (1 run): with the region kept out of the map only, box2 still
+#                  failed (0.63 / 0.49 m) - while the box covered most of the view the pose followed the box
+#                  (error ramp 0.35 -> 1.05 m, back to 0.2 when the background reappeared).
+# 6 variants x 10 sequences x 5 runs = 300 runs (~5 h). Per-frame logs on (DSLAM_DIAG=1).
 #   python3 scripts/eval/run_experiments.py scripts/itemb/itemb_trig.yaml --dry-run
 #   python3 scripts/eval/run_experiments.py scripts/itemb/itemb_trig.yaml
 #   python3 scripts/eval/evaluate.py        scripts/itemb/itemb_trig.yaml
@@ -46,6 +50,14 @@ variants:
                  DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1,
                  DSLAM_DEPTH_TRIG: 1, DSLAM_DEPTH_TRIG_AREA: 3, DSLAM_DEPTH_TRIG_PERSIST: 10}
 
+  GEOK2Z_MF_DTT: {DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10,
+                 DSLAM_KF_SWITCH_GEO: 0.3, DSLAM_KF_SWITCH_GEO_Z: 3.09, DSLAM_KF_SWITCH_GEO_KEEP: 150,
+                 DSLAM_KF_SWITCH_GEO_MINCONF: 2,
+                 DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1,
+                 DSLAM_DEPTH_TRIG: 1, DSLAM_DEPTH_TRIG_AREA: 3, DSLAM_DEPTH_TRIG_PERSIST: 10, DSLAM_DEPTH_TRIG_TRACK: 1}
+  DT_ONLY_T:    {DSLAM_YOLO_OFF: 1, DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10,
+                 DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1,
+                 DSLAM_DEPTH_TRIG: 1, DSLAM_DEPTH_TRIG_AREA: 3, DSLAM_DEPTH_TRIG_PERSIST: 10, DSLAM_DEPTH_TRIG_TRACK: 1}
 sequences:
   - bonn_moving_obstructing_box2
   - bonn_placing_obstructing_box
