@@ -18,6 +18,8 @@
 
 
 #include "LoopClosing.h"
+#include "DynamicConfig.h"
+#include <iomanip>
 
 #include "Sim3Solver.h"
 #include "Converter.h"
@@ -170,6 +172,8 @@ void LoopClosing::Run()
                         //mpTracker->SetStepByStep(true);
 
                         Verbose::PrintMess("*Merge detected", Verbose::VERBOSITY_QUIET);
+                        std::cout << std::fixed << std::setprecision(3) << "[Merge] current KF " << mpCurrentKF->mnId
+                                  << " t=" << mpCurrentKF->mTimeStamp << std::endl;
 
 #ifdef REGISTER_TIMES
                         std::chrono::steady_clock::time_point time_StartMerge = std::chrono::steady_clock::now();
@@ -227,6 +231,10 @@ void LoopClosing::Run()
                     vnPR_TypeRecogn.push_back(0);
 
                     Verbose::PrintMess("*Loop detected", Verbose::VERBOSITY_QUIET);
+                    // which two moments the loop links (a moving object seen twice can fake a loop)
+                    std::cout << std::fixed << std::setprecision(3) << "[Loop] current KF " << mpCurrentKF->mnId
+                              << " t=" << mpCurrentKF->mTimeStamp << "  matched KF " << mpLoopMatchedKF->mnId
+                              << " t=" << mpLoopMatchedKF->mTimeStamp << std::endl;
 
                     mg2oLoopScw = mg2oLoopSlw; //*mvg2oSim3LoopTcw[nCurrentIndex];
                     if(mpCurrentKF->GetMap()->IsInertial())
@@ -310,6 +318,9 @@ void LoopClosing::Run()
 
 void LoopClosing::InsertKeyFrame(KeyFrame *pKF)
 {
+    // DSLAM_NO_LOOP=1: place recognition off (no loop closing, no map merging) - diagnosis of false loops
+    if(DynamicConfig::Get().noLoop)
+        return;
     unique_lock<mutex> lock(mMutexLoopQueue);
     if(pKF->mnId!=0)
         mlpLoopKeyFrameQueue.push_back(pKF);

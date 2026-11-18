@@ -1,0 +1,46 @@
+# Item B diagnosis (18 Nov): are the pose jumps on the box sequences false loop closures?
+# Every run on moving_obstructing_box2 (plain ORB-SLAM3 too) logs exactly one "*Loop detected" in a 26 s
+# sequence, and all variants jump by 0.5-1.6 m at the same moments, whatever is masked. The box is printed
+# with distinctive text and passes the camera twice at different places - place recognition may take it for
+# a revisited place. Test: the same runs with loop closing off (DSLAM_NO_LOOP=1). The log now also says which
+# two moments a loop links: grep "\[Loop\]" results/itemb_loop/*/*/run_*/log.txt
+# Development sequences only. 4 variants x 3 sequences x 3 runs = 36 runs (~30 min).
+#   python3 scripts/eval/run_experiments.py scripts/itemb/itemb_loop.yaml
+#   python3 scripts/eval/evaluate.py        scripts/itemb/itemb_loop.yaml
+#   python3 scripts/eval/report.py          scripts/itemb/itemb_loop.yaml
+name: itemb_loop
+runs: 3
+orbslam_root: ~/ORB_SLAM3
+data_root: ~/datasets
+results_root: results
+fail_threshold_m: 0.1
+bonn_gt: bonn_tm
+
+common_env:
+  DSLAM_MODE: baseline
+  DSLAM_CHI2_GATE: raw
+  DSLAM_LABELS: opt
+  DSLAM_KERNEL: huber
+  DSLAM_IGNORE: ""
+  DSLAM_KF_SEMANTIC: 0
+  DSLAM_DIAG: 1
+  DSLAM_KF_CAP_BYPASS: 0
+
+baseline: A0_orbslam3
+variants:
+  A0_orbslam3:     {DSLAM_KF_SWITCH: 0, DSLAM_KF_MIN_GAP: 0, DSLAM_MAP_FILTER: 0}
+  A0_noloop:       {DSLAM_KF_SWITCH: 0, DSLAM_KF_MIN_GAP: 0, DSLAM_MAP_FILTER: 0, DSLAM_NO_LOOP: 1}
+  GEOK2Z_MF:       {DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10,
+                    DSLAM_KF_SWITCH_GEO: 0.3, DSLAM_KF_SWITCH_GEO_Z: 3.09, DSLAM_KF_SWITCH_GEO_KEEP: 150,
+                    DSLAM_KF_SWITCH_GEO_MINCONF: 2,
+                    DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1}
+  GEOK2Z_MF_noloop: {DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10,
+                    DSLAM_KF_SWITCH_GEO: 0.3, DSLAM_KF_SWITCH_GEO_Z: 3.09, DSLAM_KF_SWITCH_GEO_KEEP: 150,
+                    DSLAM_KF_SWITCH_GEO_MINCONF: 2,
+                    DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1,
+                    DSLAM_NO_LOOP: 1}
+
+sequences:
+  - bonn_moving_obstructing_box2
+  - bonn_placing_obstructing_box
+  - bonn_removing_obstructing_box

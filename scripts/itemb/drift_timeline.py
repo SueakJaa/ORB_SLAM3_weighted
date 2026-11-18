@@ -49,6 +49,8 @@ def main():
     ap.add_argument("--variant", action="append", required=True)
     ap.add_argument("--run", type=int, default=1)
     ap.add_argument("--dt", type=float, default=0.5)
+    ap.add_argument("--max-diff", type=float, default=None,
+                    help="max time between an estimate and its ground-truth pose [s] (default: the config's, 0.01)")
     a = ap.parse_args()
     cfg = load_config(a.config)
     gt_path = os.path.join(seq_dir(cfg, a.seq), "groundtruth.txt")
@@ -67,7 +69,7 @@ def main():
             continue
         te, pe, qe = tm.load_tum(tp)
         E = tm.to_se3(pe, qe)
-        ig, ie = tm.associate(tg, te, cfg["max_time_diff_s"])
+        ig, ie = tm.associate(tg, te, a.max_diff if a.max_diff is not None else cfg["max_time_diff_s"])
         t = te[ie]
         Gm, Em = G[ig], E[ie]
         drift_t, drift_r, tt, mv = [], [], [], []
