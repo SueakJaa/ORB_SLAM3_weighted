@@ -10,9 +10,10 @@ sequence with failed runs in brackets, and whether it CHANGES the result.
 What counts as a change. Each tried value has 3 runs, and a 3-run median of a noisy sequence moves a lot by
 chance. If DEFAULT has >= 8 runs (run_experiments.py ... --runs 10 --variant DEFAULT), the noise band of a
 3-run median is measured directly: the medians of EVERY group of 3 DEFAULT runs, 2.5-97.5th percentile,
-widened by 1 mm. A value CHANGES a sequence if its 3-run median lies outside that band, or if it fails >= 2 of 3 runs while DEFAULT
-fails at most a third of its runs. With fewer DEFAULT runs the old rule is used (+-20 % or 2 mm, no extra
-failures). The "stable range" lists the values that change no sequence.
+widened by 1 mm. A value makes a sequence WORSE if its 3-run median lies above that band, or if it fails >= 2 of 3 runs while
+DEFAULT fails at most a third of its runs; below the band is listed as "better". With fewer DEFAULT runs the
+old rule is used (+-20 % or 2 mm, no extra failures). The stable range lists the values that make no sequence
+worse.
 Figure: <experiment>/report/sensitivity.png - one panel per parameter, median ATE relative to DEFAULT.
 """
 import csv
@@ -64,7 +65,7 @@ def main(cfg_path):
         stable, line = [], []
         for v in vals:
             var = "DEFAULT" if v == p["default"] else f"{p['name']}_{v}"
-            cells, ok_all, rel = [], True, []
+            cells, ok_all, rel, worse, better = [], True, [], [], []
             for s in seqs:
                 m, f = stat(var, s)
                 m0, f0 = stat("DEFAULT", s)
@@ -77,17 +78,25 @@ def main(cfg_path):
                 rel.append(m / m0 if m0 > 0 else float("nan"))
                 if s in band and v != p["default"]:
                     lo, hi, frate = band[s]
-                    within = lo - FLOOR_M <= m <= hi + FLOOR_M
-                    ok_all &= within and not (f >= 2 and frate <= 1 / 3)
+                    if m > hi + FLOOR_M or (f >= 2 and frate <= 1 / 3):
+                        worse.append(name(s))
+                    elif m < lo - FLOOR_M:
+                        better.append(name(s))
+                    ok_all &= not worse
                 else:
                     within = abs(m - m0) <= max(TOL * m0, ABS_MM / 1000)
                     ok_all &= within and f <= f0
             mark = "*" if v == p["default"] else " "
-            print(f"{v:>7}{mark}" + "".join(cells) + ("" if v == p["default"] else ("   stable" if ok_all else "   CHANGES")))
+            verdict = ""
+            if v != p["default"]:
+                verdict = ("   WORSE: " + ", ".join(worse)) if worse else "   stable"
+                if better:
+                    verdict += "   (better: " + ", ".join(better) + ")"
+            print(f"{v:>7}{mark}" + "".join(cells) + verdict)
             if ok_all or v == p["default"]:
                 stable.append(v)
             line.append((v, rel))
-        print(f"   stable for: {stable}")
+        print(f"   no sequence worse for: {stable}")
         rows_fig.append((p, line))
     try:
         import matplotlib
