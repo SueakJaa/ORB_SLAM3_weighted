@@ -40,6 +40,19 @@ variants:
                     DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1,
                     DSLAM_NO_LOOP: 1}
 
+  # 18 Nov, after the first 36 runs: loops off helped box2 (GEOK2Z_MF 0.57 -> 0.36) but every run still fails;
+  # without loops the remaining drift spikes are during the box passes. Last test of Item B on box sequences:
+  # the depth trigger (with tracking exclusion) together with loops off.
+  GEOK2Z_MF_DTT_noloop: {DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10,
+                    DSLAM_KF_SWITCH_GEO: 0.3, DSLAM_KF_SWITCH_GEO_Z: 3.09, DSLAM_KF_SWITCH_GEO_KEEP: 150,
+                    DSLAM_KF_SWITCH_GEO_MINCONF: 2,
+                    DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1,
+                    DSLAM_DEPTH_TRIG: 1, DSLAM_DEPTH_TRIG_AREA: 3, DSLAM_DEPTH_TRIG_PERSIST: 10, DSLAM_DEPTH_TRIG_TRACK: 1,
+                    DSLAM_NO_LOOP: 1}
+  DT_ONLY_T_noloop: {DSLAM_YOLO_OFF: 1, DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10,
+                    DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1,
+                    DSLAM_DEPTH_TRIG: 1, DSLAM_DEPTH_TRIG_AREA: 3, DSLAM_DEPTH_TRIG_PERSIST: 10, DSLAM_DEPTH_TRIG_TRACK: 1,
+                    DSLAM_NO_LOOP: 1}
 sequences:
   - bonn_moving_obstructing_box2
   - bonn_placing_obstructing_box
