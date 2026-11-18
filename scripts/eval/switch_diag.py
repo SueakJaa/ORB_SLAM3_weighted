@@ -61,6 +61,9 @@ def stats_of(rd):
     if m and int(m.group(1)):
         out["dstat"] = 100 * int(m.group(2)) / int(m.group(1))
         out["dunk"] = 100 * int(m.group(4)) / int(m.group(1))
+    m = re.search(r"depth_trigger_hits=(\d+) depth_trigger_active=(\d+)", s)
+    if m:
+        out["dthits"], out["dtact"] = int(m.group(1)), int(m.group(2))
     m = re.search(r"cap_blocked=(\d+)", s)
     if m:
         out["blocked"] = int(m.group(1))
@@ -156,7 +159,8 @@ def main():
                   f"{mean([x['dstat'] for x in rs if 'dstat' in x]):13.1f} {mean([x['dunk'] for x in rs if 'dunk' in x]):8.1f}")
     if a.seq in cfg["sequences"]:
         print(f"\n--- {short(a.seq)} run by run ---")
-        print(f"{'variant':12s} {'run':>3s} {'status':>6s} {'ATE':>7s} {'switch%':>8s} {'det%':>6s} {'cap_blocked':>11s}")
+        print(f"{'variant':12s} {'run':>3s} {'status':>6s} {'ATE':>7s} {'switch%':>8s} {'det%':>6s} {'cap_blocked':>11s} "
+              f"{'depth trig on':>13s}")
         for v in cfg["variants"]:
             vd = os.path.join(root, a.seq, v)
             if not os.path.isdir(vd):
@@ -168,7 +172,7 @@ def main():
                 flag = "  <- FAILED" if status == "crash" or (ate is not None and ate > thr) else ""
                 print(f"{v:12s} {n:3d} {status:>6s} {ate if ate is not None else float('nan'):7.3f} "
                       f"{x.get('sw', float('nan')):8.1f} {x.get('det', float('nan')):6.1f} "
-                      f"{x.get('blocked', -1):11d}{flag}")
+                      f"{x.get('blocked', -1):11d} {x.get('dtact', -1):13d}{flag}")
     if not have_diag:
         print("\n(no diag_frames.csv in this experiment - for part 2 run configs/diag_fr1room.yaml)")
         return

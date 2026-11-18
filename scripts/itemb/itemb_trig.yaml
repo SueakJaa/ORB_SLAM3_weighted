@@ -1,0 +1,59 @@
+# v22 / Item B: the YOLO-free depth trigger inside the system (DSLAM_DEPTH_TRIG), DEVELOPMENT data only.
+# Rule chosen offline (trigger_sweep.py on itemb_dev, poses from the system): largest region >= 3 % of the valid
+# pixels, focus >= 0.5, 5 scans in a row at step 2 = 10 frames (DSLAM_DEPTH_TRIG_PERSIST=10).
+# Questions: (1) do the three box sequences get better? (2) does anything else get worse (walking, sitting,
+# fr1 where nothing moves)? (3) how far does geometry alone go (no YOLO at all)?
+#   GEOK2Z_MF      final method (YOLO + z-test), for comparison
+#   GEOK2Z_MF_DT   + depth trigger (YOLO OR depth can switch on)
+#   DT_ONLY        depth trigger only, YOLO never runs
+# 4 variants x 10 sequences x 5 runs = 200 runs (~3.5 h). Per-frame logs on (DSLAM_DIAG=1).
+#   python3 scripts/eval/run_experiments.py scripts/itemb/itemb_trig.yaml --dry-run
+#   python3 scripts/eval/run_experiments.py scripts/itemb/itemb_trig.yaml
+#   python3 scripts/eval/evaluate.py        scripts/itemb/itemb_trig.yaml
+#   python3 scripts/eval/report.py          scripts/itemb/itemb_trig.yaml
+#   python3 scripts/eval/report.py          scripts/itemb/itemb_trig.yaml --baseline GEOK2Z_MF
+name: itemb_trig
+runs: 5
+orbslam_root: ~/ORB_SLAM3
+data_root: ~/datasets
+results_root: results
+fail_threshold_m: 0.1
+bonn_gt: bonn_tm
+
+common_env:
+  DSLAM_MODE: baseline
+  DSLAM_CHI2_GATE: raw
+  DSLAM_LABELS: opt
+  DSLAM_KERNEL: huber
+  DSLAM_IGNORE: ""
+  DSLAM_KF_SEMANTIC: 0
+  DSLAM_DIAG: 1
+  DSLAM_KF_CAP_BYPASS: 0
+
+baseline: A0_orbslam3
+variants:
+  A0_orbslam3:  {DSLAM_KF_SWITCH: 0, DSLAM_KF_MIN_GAP: 0, DSLAM_MAP_FILTER: 0}
+  GEOK2Z_MF:    {DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10,
+                 DSLAM_KF_SWITCH_GEO: 0.3, DSLAM_KF_SWITCH_GEO_Z: 3.09, DSLAM_KF_SWITCH_GEO_KEEP: 150,
+                 DSLAM_KF_SWITCH_GEO_MINCONF: 2,
+                 DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1}
+  GEOK2Z_MF_DT: {DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10,
+                 DSLAM_KF_SWITCH_GEO: 0.3, DSLAM_KF_SWITCH_GEO_Z: 3.09, DSLAM_KF_SWITCH_GEO_KEEP: 150,
+                 DSLAM_KF_SWITCH_GEO_MINCONF: 2,
+                 DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1,
+                 DSLAM_DEPTH_TRIG: 1, DSLAM_DEPTH_TRIG_AREA: 3, DSLAM_DEPTH_TRIG_PERSIST: 10}
+  DT_ONLY:      {DSLAM_YOLO_OFF: 1, DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10,
+                 DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1,
+                 DSLAM_DEPTH_TRIG: 1, DSLAM_DEPTH_TRIG_AREA: 3, DSLAM_DEPTH_TRIG_PERSIST: 10}
+
+sequences:
+  - bonn_moving_obstructing_box2
+  - bonn_placing_obstructing_box
+  - bonn_removing_obstructing_box
+  - bonn_synchronous2
+  - bonn_crowd3
+  - freiburg3_walking_xyz
+  - freiburg3_walking_rpy
+  - freiburg3_sitting_xyz
+  - freiburg1_room
+  - freiburg1_desk

@@ -145,13 +145,32 @@ struct DynamicConfig
     int         mapDepthViews = 1;     // DSLAM_MAP_DEPTH_VIEWS: 1 = the frame GAP back; 2 = also GAP/2 back, static
                                        // only if both agree
     float       mapDepthPose = 0.02f;  // DSLAM_MAP_DEPTH_POSE: allowance for pose error [m]
+    // v22 (Item B): a trigger that needs no YOLO. Every frame, the depth image is moved into a frame
+    // DSLAM_DEPTH_TRIG_GAP frames earlier with the motion-model pose; pixels that are closer now than what that
+    // frame measured there (beyond Kinect noise, K * sqrt(s1^2 + s2^2) + POSE) have something new in them. The
+    // largest connected region of such pixels (8-connected, on a grid subsampled by SCALE) counts as a hit if it
+    // covers >= AREA % of the valid pixels and >= FOCUS of all such pixels (one object, not pose error). After
+    // PERSIST hits in a row the keyframe switch turns on (same hold as YOLO) and the region's keypoints are kept
+    // out of the map. Chosen offline on development data only (scripts/itemb, 18 Nov): 3 %, 10 frames.
+    int         depthTrig = 0;          // DSLAM_DEPTH_TRIG: 1 = on (needs DSLAM_KF_SWITCH=1)
+    int         yoloOff = 0;            // DSLAM_YOLO_OFF: 1 = never run YOLO (geometry-only trigger, ablation)
+    int         depthTrigGap = 10;      // DSLAM_DEPTH_TRIG_GAP: frames back (1/3 s at 30 Hz)
+    float       depthTrigArea = 3.0f;   // DSLAM_DEPTH_TRIG_AREA: largest region, % of valid pixels
+    float       depthTrigFocus = 0.5f;  // DSLAM_DEPTH_TRIG_FOCUS: largest region / all disagreeing pixels
+    int         depthTrigPersist = 10;  // DSLAM_DEPTH_TRIG_PERSIST: hits in a row before the switch turns on
+    int         depthTrigScale = 4;     // DSLAM_DEPTH_TRIG_SCALE: pixel subsampling (4 -> 160x120)
+    int         depthTrigWin = 4;       // DSLAM_DEPTH_TRIG_WIN: search radius in the old depth image [px]
+    float       depthTrigK = 3.0f;      // DSLAM_DEPTH_TRIG_K: noise multiplier
+    float       depthTrigPose = 0.02f;  // DSLAM_DEPTH_TRIG_POSE: allowance for pose error [m]
+    int         depthTrigDilate = 8;    // DSLAM_DEPTH_TRIG_DILATE: grow the region by this many pixels when
+                                        // marking keypoints (edges of the moving object)
     int         mapDepthKeepUnknown = 0; // DSLAM_MAP_DEPTH_KEEP_UNKNOWN: no evidence (outside the old image,
                                        // no depth there, no old frame yet): 0 = keep out (band decides), 1 = allow
 
     bool UseYOLO()     const { return mode == YOLO || mode == PROPOSED; }
     bool UseGeometry() const { return mode == GEO  || mode == PROPOSED; }
     bool UseWeighting()const { return mode != BASELINE; }
-    bool NeedYOLO()    const { return UseYOLO() || mapFilter || kfSemantic || kfSwitch || diag; }
+    bool NeedYOLO()    const { return !yoloOff && (UseYOLO() || mapFilter || kfSemantic || kfSwitch || diag); }
 
     const char* GateName() const
     {
@@ -264,6 +283,17 @@ private:
         if(const char* s = std::getenv("DSLAM_MAP_FILTER_SITES")) c.mapFilterSites = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_MAP_FILTER_INIT")) c.mapFilterInit = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_MAP_DEPTH_TEST")) c.mapDepthTest = std::atoi(s);
+        if(const char* s = std::getenv("DSLAM_DEPTH_TRIG"))         c.depthTrig        = std::atoi(s);
+        if(const char* s = std::getenv("DSLAM_YOLO_OFF"))           c.yoloOff          = std::atoi(s);
+        if(const char* s = std::getenv("DSLAM_DEPTH_TRIG_GAP"))     c.depthTrigGap     = std::max(1, std::atoi(s));
+        if(const char* s = std::getenv("DSLAM_DEPTH_TRIG_AREA"))    c.depthTrigArea    = std::stof(s);
+        if(const char* s = std::getenv("DSLAM_DEPTH_TRIG_FOCUS"))   c.depthTrigFocus   = std::stof(s);
+        if(const char* s = std::getenv("DSLAM_DEPTH_TRIG_PERSIST")) c.depthTrigPersist = std::max(1, std::atoi(s));
+        if(const char* s = std::getenv("DSLAM_DEPTH_TRIG_SCALE"))   c.depthTrigScale   = std::max(1, std::atoi(s));
+        if(const char* s = std::getenv("DSLAM_DEPTH_TRIG_WIN"))     c.depthTrigWin     = std::max(0, std::atoi(s));
+        if(const char* s = std::getenv("DSLAM_DEPTH_TRIG_K"))       c.depthTrigK       = std::stof(s);
+        if(const char* s = std::getenv("DSLAM_DEPTH_TRIG_POSE"))    c.depthTrigPose    = std::stof(s);
+        if(const char* s = std::getenv("DSLAM_DEPTH_TRIG_DILATE"))  c.depthTrigDilate  = std::max(0, std::atoi(s));
         if(const char* s = std::getenv("DSLAM_MAP_DEPTH_GAP"))  c.mapDepthGap  = std::max(1, std::atoi(s));
         if(const char* s = std::getenv("DSLAM_MAP_DEPTH_K"))    c.mapDepthK    = std::stof(s);
         if(const char* s = std::getenv("DSLAM_MAP_DEPTH_VIEWS")) c.mapDepthViews = std::max(1, std::atoi(s));
@@ -291,7 +321,11 @@ private:
                   << " diag=" << c.diag
                   << " map_filter=" << c.mapFilter << "(depth " << c.mapFilterDepth << ", sites " << c.mapFilterSites << ", init " << c.mapFilterInit << ")"
                   << " map_depth_test=" << c.mapDepthTest << "(gap " << c.mapDepthGap << ", views " << c.mapDepthViews << ", k " << c.mapDepthK
-                  << ", pose " << c.mapDepthPose << ", keep_unknown " << c.mapDepthKeepUnknown << ")" << std::endl;
+                  << ", pose " << c.mapDepthPose << ", keep_unknown " << c.mapDepthKeepUnknown << ")"
+                  << " yolo_off=" << c.yoloOff << " depth_trig=" << c.depthTrig << "(gap " << c.depthTrigGap << ", area " << c.depthTrigArea
+                  << "%, focus " << c.depthTrigFocus << ", persist " << c.depthTrigPersist << ", scale "
+                  << c.depthTrigScale << ", win " << c.depthTrigWin << ", k " << c.depthTrigK << ", pose "
+                  << c.depthTrigPose << ", dilate " << c.depthTrigDilate << ")" << std::endl;
         return c;
     }
 };

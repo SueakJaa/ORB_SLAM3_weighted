@@ -1601,6 +1601,10 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
         }
     }
 
+    // ===== DSLAM_DEPTH_TRIG (Item B): moving region from depth, no YOLO =====
+    if(DynamicConfig::Get().depthTrig)
+        DepthTriggerScan(imDepth);
+
     // ===== DSLAM_KF_SWITCH / DSLAM_DIAG: per-frame state =====
     {
         const DynamicConfig& dc = DynamicConfig::Get();
@@ -1632,6 +1636,12 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
                 static_cast<int>(mdGeoConfFrames.size()) >= dc.kfSwitchGeoMinConf;
             if(bHit && mnDynStreak >= dc.kfSwitchPersist && (dc.kfSwitchGeo <= 0.0f || bGeoRecent))
                 mnLastDynFrameId = static_cast<long>(mCurrentFrame.mnId);
+            // the depth trigger is geometric evidence already, so it switches on without the YOLO/box check
+            if(dc.depthTrig && mnDepthTrigStreak >= dc.depthTrigPersist)
+            {
+                mnLastDynFrameId = static_cast<long>(mCurrentFrame.mnId);
+                mnDepthTrigActive++;
+            }
             mbKfRuleActive = (static_cast<long>(mCurrentFrame.mnId) - mnLastDynFrameId) <= dc.kfSwitchHold;
         }
     }
@@ -1651,12 +1661,17 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
     mvTimeTrackMs.push_back(std::chrono::duration<float, std::milli>(tTrack1 - tTrack0).count());
     mvTimeTotalMs.push_back(std::chrono::duration<float, std::milli>(tTrack1 - tGrab0).count());
 
-    // DSLAM_MAP_DEPTH_TEST: remember this frame's depth and pose (only well-tracked frames)
-    if(DynamicConfig::Get().mapDepthTest && mState == OK && mCurrentFrame.HasPose())
+    // DSLAM_MAP_DEPTH_TEST / DSLAM_DEPTH_TRIG: remember this frame's depth and pose (only well-tracked frames)
     {
-        mDepthHist.push_back({mCurrentFrame.mnId, mCurrentFrame.GetPose(), imDepth.clone()});
-        while(mDepthHist.size() > static_cast<size_t>(DynamicConfig::Get().mapDepthGap))
-            mDepthHist.pop_front();
+        const DynamicConfig& dc = DynamicConfig::Get();
+        if((dc.mapDepthTest || dc.depthTrig) && mState == OK && mCurrentFrame.HasPose())
+        {
+            const size_t keep = static_cast<size_t>(std::max(dc.mapDepthTest ? dc.mapDepthGap : 0,
+                                                             dc.depthTrig ? dc.depthTrigGap + 1 : 0));
+            mDepthHist.push_back({mCurrentFrame.mnId, mCurrentFrame.GetPose(), imDepth.clone()});
+            while(mDepthHist.size() > keep)
+                mDepthHist.pop_front();
+        }
     }
 
     return mCurrentFrame.GetPose();
@@ -4584,6 +4599,9 @@ void Tracking::PrintDynamicStats()
         std::cout << " triangulation_candidates=" << mpLocalMapper->mnTriCandidates
                   << " triangulation_filtered=" << mpLocalMapper->mnTriFiltered
                   << " triangulated=" << mpLocalMapper->mnTriCreated;
+    if(c.depthTrig)
+        std::cout << " depth_trigger_hits=" << mnDepthTrigHits << " depth_trigger_active=" << mnDepthTrigActive
+                  << " depth_trigger_marked=" << mnDepthTrigMarked;
     if(c.mapDepthTest)
         std::cout << " depth_test_candidates=" << mnDepthCand << " depth_static=" << mnDepthStatic
                   << " depth_moved=" << mnDepthMoved << " depth_unknown=" << mnDepthUnknown;
@@ -4674,6 +4692,165 @@ void Tracking::DepthTestForMap()
     }
 }
 
+void Tracking::DepthTriggerScan(const cv::Mat &imDepth)
+{
+    // Item B. Same computation as scripts/itemb/depth_motion_scan.py, with the motion-model pose of the
+    // current frame (it runs before tracking, so it can act on this frame).
+    const DynamicConfig& dc = DynamicConfig::Get();
+    mfDepthTrigLargest = 0.0f;
+    bool bHit = false;
+    std::vector<unsigned char> region;
+    int W = 0, H = 0;
+    const int s = std::max(1, dc.depthTrigScale);
+    const DepthHistory* old = nullptr;
+    for(auto it = mDepthHist.rbegin(); it != mDepthHist.rend(); ++it)
+        if(mCurrentFrame.mnId >= it->id + static_cast<unsigned long>(dc.depthTrigGap))
+        {
+            old = &(*it);
+            break;
+        }
+    if(old && mCurrentFrame.mnId <= old->id + 2UL * dc.depthTrigGap && mLastFrame.HasPose() && !imDepth.empty())
+    {
+        const Sophus::SE3f Tcw = mbVelocity ? mVelocity * mLastFrame.GetPose() : mLastFrame.GetPose();
+        const Sophus::SE3f Trt = old->Tcw * Tcw.inverse();
+        const Eigen::Matrix3f R = Trt.rotationMatrix();
+        const Eigen::Vector3f t = Trt.translation();
+        W = imDepth.cols / s;
+        H = imDepth.rows / s;
+        std::vector<unsigned char> moved(W * H, 0);
+        int nValid = 0;
+        std::vector<int> offs = {-dc.depthTrigWin, -(dc.depthTrigWin / 2), 0, dc.depthTrigWin / 2, dc.depthTrigWin};
+        std::sort(offs.begin(), offs.end());
+        offs.erase(std::unique(offs.begin(), offs.end()), offs.end());
+        const auto sigma = [](float z) { return 1.425e-3f * z * z; };
+        const float fx = Frame::fx, fy = Frame::fy, cx = Frame::cx, cy = Frame::cy;
+        for(int gy = 0; gy < H; gy++)
+            for(int gx = 0; gx < W; gx++)
+            {
+                const int u = gx * s + s / 2, v = gy * s + s / 2;
+                const float z = imDepth.at<float>(v, u);
+                if(!(z > 0.1f) || !std::isfinite(z))
+                    continue;
+                const Eigen::Vector3f xr = R * Eigen::Vector3f((u - cx) * z / fx, (v - cy) * z / fy, z) + t;
+                const float zp = xr(2);
+                if(zp <= 0.1f)
+                    continue;
+                const int ur = static_cast<int>(std::lround(fx * xr(0) / zp + cx));
+                const int vr = static_cast<int>(std::lround(fy * xr(1) / zp + cy));
+                float best = -1.0f;   // old depth in the window closest to the prediction
+                for(int dv : offs)
+                    for(int du : offs)
+                    {
+                        const int uu = ur + du, vv = vr + dv;
+                        if(uu < 0 || vv < 0 || uu >= old->depth.cols || vv >= old->depth.rows)
+                            continue;
+                        const float d = old->depth.at<float>(vv, uu);
+                        if(d > 0.0f && std::isfinite(d) && (best < 0.0f || std::fabs(d - zp) < std::fabs(best - zp)))
+                            best = d;
+                    }
+                if(best <= 0.0f)
+                    continue;
+                nValid++;
+                const float tol = dc.depthTrigK * std::sqrt(sigma(zp) * sigma(zp) + sigma(best) * sigma(best)) + dc.depthTrigPose;
+                if(best - zp > tol)
+                    moved[gy * W + gx] = 1;   // closer now than what was there before: something arrived
+            }
+        // opening with a 2x2 element: drop isolated noisy cells
+        std::vector<unsigned char> er(W * H, 0), op(W * H, 0);
+        for(int gy = 0; gy + 1 < H; gy++)
+            for(int gx = 0; gx + 1 < W; gx++)
+                er[gy * W + gx] = moved[gy * W + gx] & moved[gy * W + gx + 1] & moved[(gy + 1) * W + gx] & moved[(gy + 1) * W + gx + 1];
+        int nMoved = 0;
+        for(int gy = 0; gy < H; gy++)
+            for(int gx = 0; gx < W; gx++)
+            {
+                unsigned char m = er[gy * W + gx];
+                if(gx > 0) m |= er[gy * W + gx - 1];
+                if(gy > 0) m |= er[(gy - 1) * W + gx];
+                if(gx > 0 && gy > 0) m |= er[(gy - 1) * W + gx - 1];
+                op[gy * W + gx] = m;
+                nMoved += m;
+            }
+        // largest 8-connected region
+        std::vector<int> label(W * H, 0), stack;
+        int bestLabel = 0, bestSize = 0, nextLabel = 0;
+        for(int p = 0; p < W * H; p++)
+        {
+            if(!op[p] || label[p])
+                continue;
+            nextLabel++;
+            int size = 0;
+            stack.assign(1, p);
+            label[p] = nextLabel;
+            while(!stack.empty())
+            {
+                const int q = stack.back();
+                stack.pop_back();
+                size++;
+                const int qx = q % W, qy = q / W;
+                for(int dy = -1; dy <= 1; dy++)
+                    for(int dx = -1; dx <= 1; dx++)
+                    {
+                        const int nx = qx + dx, ny = qy + dy;
+                        if(nx < 0 || ny < 0 || nx >= W || ny >= H)
+                            continue;
+                        const int r = ny * W + nx;
+                        if(op[r] && !label[r])
+                        {
+                            label[r] = nextLabel;
+                            stack.push_back(r);
+                        }
+                    }
+            }
+            if(size > bestSize)
+            {
+                bestSize = size;
+                bestLabel = nextLabel;
+            }
+        }
+        if(nValid > 0 && bestSize > 0)
+        {
+            mfDepthTrigLargest = static_cast<float>(bestSize) / nValid;
+            const float focus = static_cast<float>(bestSize) / std::max(nMoved, 1);
+            bHit = 100.0f * mfDepthTrigLargest >= dc.depthTrigArea && focus >= dc.depthTrigFocus;
+            if(bHit)
+            {
+                region.assign(W * H, 0);
+                for(int p = 0; p < W * H; p++)
+                    region[p] = (label[p] == bestLabel);
+            }
+        }
+    }
+    mnDepthTrigStreak = bHit ? mnDepthTrigStreak + 1 : 0;
+    if(bHit)
+        mnDepthTrigHits++;
+    // once the trigger is on, keep the region's keypoints out of the map (as the YOLO band does for people)
+    if(bHit && mnDepthTrigStreak >= dc.depthTrigPersist && dc.mapFilter)
+    {
+        if(mCurrentFrame.mvbDynamicMap.size() != static_cast<size_t>(mCurrentFrame.N))
+            mCurrentFrame.mvbDynamicMap.assign(mCurrentFrame.N, false);
+        const int rad = (dc.depthTrigDilate + s - 1) / s;
+        const int nKeys = (mCurrentFrame.Nleft == -1) ? mCurrentFrame.N : mCurrentFrame.Nleft;
+        for(int i = 0; i < nKeys; i++)
+        {
+            const int gx = static_cast<int>(mCurrentFrame.mvKeys[i].pt.x) / s;
+            const int gy = static_cast<int>(mCurrentFrame.mvKeys[i].pt.y) / s;
+            bool in = false;
+            for(int dy = -rad; dy <= rad && !in; dy++)
+                for(int dx = -rad; dx <= rad && !in; dx++)
+                {
+                    const int nx = gx + dx, ny = gy + dy;
+                    in = nx >= 0 && ny >= 0 && nx < W && ny < H && region[ny * W + nx];
+                }
+            if(in && !mCurrentFrame.mvbDynamicMap[i])
+            {
+                mCurrentFrame.mvbDynamicMap[i] = true;
+                mnDepthTrigMarked++;
+            }
+        }
+    }
+}
+
 void Tracking::WriteDiagLine(bool bNeedKF)
 {
     if(!mDiagOut.is_open())
@@ -4682,7 +4859,7 @@ void Tracking::WriteDiagLine(bool bNeedKF)
         mDiagOut << "frame,t,state,yolo_frac,kf_rule_active,matched,outliers,outliers_in_box,"
                     "inliers_in_box,inliers_track,inliers_kf,ref_matches,tracked_close,"
                     "nontracked_close,need_kf,kf_created,new_mp,new_mp_in_box,mp_filtered,dyn_map_frac,"
-                    "map_points,map_keyframes\n";
+                    "map_points,map_keyframes,dt_largest,dt_streak\n";
     }
     mDiagOut << mCurrentFrame.mnId << ',' << std::fixed << std::setprecision(6) << mCurrentFrame.mTimeStamp << ','
              << static_cast<int>(mState) << ',' << std::setprecision(3) << mfYoloFrac << ','
@@ -4695,7 +4872,8 @@ void Tracking::WriteDiagLine(bool bNeedKF)
     for(size_t i = 0; i < mCurrentFrame.mvbDynamicMap.size(); i++)
         if(mCurrentFrame.mvbDynamicMap[i]) nDynMap++;
     mDiagOut << std::setprecision(3) << (mCurrentFrame.N > 0 ? static_cast<float>(nDynMap) / mCurrentFrame.N : 0.0f) << ','
-             << mpAtlas->MapPointsInMap() << ',' << mpAtlas->KeyFramesInMap() << '\n';
+             << mpAtlas->MapPointsInMap() << ',' << mpAtlas->KeyFramesInMap() << ','
+             << std::setprecision(4) << mfDepthTrigLargest << ',' << mnDepthTrigStreak << '\n';
 }
 
 } //namespace ORB_SLAM
