@@ -6,10 +6,12 @@ Usage (from ~/ORB_SLAM3):
     python3 scripts/eval/reset_scan.py --exp thesis_z  # one experiment
     python3 scripts/eval/reset_scan.py --runs          # also list every affected run
 
-Events counted per run (the text ORB-SLAM3 prints):
-    full_reset   "System Reseting"        Tracking::Reset(): frame ids restart at 0
-    map_reset    "Active map Reseting"    Tracking::ResetActiveMap(): lost with < 10 keyframes, map erased
-    new_map      "First frame id in map"  Tracking::CreateMapInAtlas(): lost, a new map is started
+Events counted per run. System.cc sets the verbosity to QUIET, so Verbose::PrintMess lines such as
+"System Reseting" never reach the log; only plain cout lines are used:
+    full_reset   "System Reseting"        Tracking::Reset() - silenced, and nothing calls it in our runs
+    map_reset    "Frames set to lost"     Tracking::ResetActiveMap(): lost with < 10 keyframes, map erased
+    new_map      "Stored map with ID"     Atlas::CreateNewMap() after the first map: lost, a new map is started
+    lost_lm      "Fail to track local map!"  tracking failures (sanity check that logs contain anything)
 Before commit "clear depth history on map change", variants using DSLAM_MAP_DEPTH_TEST or DSLAM_DEPTH_TRIG
 kept depth frames from the old map after map_reset / new_map; those runs are marked DEPTH.
 """
@@ -18,8 +20,9 @@ import os
 from collections import defaultdict
 
 EVENTS = {"full_reset": "System Reseting",
-          "map_reset": "Active map Reseting",
-          "new_map": "First frame id in map"}
+          "map_reset": "Frames set to lost",
+          "new_map": "Stored map with ID"}
+SANITY = "Fail to track local map!"
 
 
 def uses_depth_history(log_text):
@@ -44,6 +47,7 @@ def main():
     if a.exp:
         exps = [e for e in exps if e == a.exp]
     total_runs = 0
+    total_lost = [0]
     affected = []
     table = defaultdict(lambda: defaultdict(int))   # (exp, variant) -> counters
     for exp in exps:
@@ -66,6 +70,8 @@ def main():
                     c = {k: txt.count(s) for k, s in EVENTS.items()}
                     t = table[(exp, var)]
                     t["runs"] += 1
+                    t["lost_lm"] += txt.count(SANITY)
+                    total_lost[0] += txt.count(SANITY)
                     if any(c.values()):
                         t["affected"] += 1
                         for k, v in c.items():
@@ -75,7 +81,8 @@ def main():
                             t["depth"] += 1
                         affected.append((exp, seq, var, run, c, depth))
 
-    print(f"{total_runs} runs scanned, {len(affected)} with a reset or new map\n")
+    print(f"{total_runs} runs scanned, {len(affected)} with a reset or new map "
+          f"('Fail to track local map!' lines in all logs: {total_lost[0]})\n")
     print(f"{'experiment':22s} {'variant':22s} {'runs':>5s} {'affected':>8s} {'full':>5s} {'mapRst':>6s} {'newMap':>6s} {'DEPTH':>5s}")
     for (exp, var), t in sorted(table.items()):
         if t["affected"] == 0:
