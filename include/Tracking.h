@@ -83,6 +83,7 @@ public:
     // DSLAM_MAP_DEPTH_TEST: depth images + poses of the last frames, and what the test decided
     struct DepthHistory { unsigned long id; Sophus::SE3f Tcw; cv::Mat depth; };
     std::deque<DepthHistory> mDepthHist;
+    void ClearDepthHistory();          // on Reset, ResetActiveMap and CreateMapInAtlas
     long   mnDepthCand = 0, mnDepthStatic = 0, mnDepthMoved = 0, mnDepthUnknown = 0;
     void   DepthTestForMap();
     // DSLAM_DEPTH_TRIG (Item B): region of pixels that something moved into, found without YOLO

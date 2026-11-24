@@ -2848,7 +2848,20 @@ void Tracking::CreateMapInAtlas()
     mCurrentFrame = Frame();
     mvIniMatches.clear();
 
+    // the new map has its own coordinate frame: poses stored with old depth frames no longer apply
+    ClearDepthHistory();
+
     mbCreatedMap = true;
+}
+
+void Tracking::ClearDepthHistory()
+{
+    // Past depth frames (DSLAM_MAP_DEPTH_TEST, DSLAM_DEPTH_TRIG) are compared using their stored poses,
+    // so they are only valid inside the map they were recorded in. The YOLO/geometric switch state is
+    // kept on a new map (frame ids keep counting and the people are still in view); only the full
+    // Reset() clears it, because there frame ids restart at 0.
+    mDepthHist.clear();
+    mnDepthTrigStreak = 0;
 }
 
 void Tracking::CheckReplacedInLastFrame()
@@ -4228,6 +4241,8 @@ void Tracking::Reset(bool bLocMap)
     mnLastGeoFrameId = -1000000;
     mdGeoConfFrames.clear();
     mnDynStreak = 0;
+    mbKfRuleActive = true;              // same as a fresh start
+    ClearDepthHistory();
 
     mbReadyToInitializate = false;
     mbSetInit=false;
@@ -4325,6 +4340,9 @@ void Tracking::ResetActiveMap(bool bLocMap)
 
     mnInitialFrameId = mCurrentFrame.mnId;
     mnLastRelocFrameId = mCurrentFrame.mnId;
+
+    // stored depth frames carry poses of the map that was just erased
+    ClearDepthHistory();
 
     mCurrentFrame = Frame();
     mLastFrame = Frame();
