@@ -21,4 +21,5 @@ public:
     bool  mbFp16 = false;                           // ... with half precision
 private:
     cv::dnn::Net net;   // the model
+    std::vector<std::string> mvOutNames;   // outputs requested per frame (only the decoded one if the model has it)
 };

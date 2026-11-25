@@ -4,6 +4,7 @@
 //
 // For CPU, CUDA FP32 and CUDA FP16 it times net.forward() two ways:
 //   all4    all four ONNX outputs (what YOLOdetector does now: three raw heads + the decoded [1,25200,85])
+//   heads   only the three raw heads (logits; does OpenCV then skip the decoding layers?)
 //   decoded only the decoded output (the three raw heads are 2.1 M floats = 8.6 MB more to copy back per frame)
 // and prints the slowest layers of the CUDA run (getPerfProfile), so a layer that falls back to the CPU shows up.
 #include <opencv2/opencv.hpp>
@@ -78,10 +79,18 @@ int main(int argc, char** argv)
         net.setInput(blob);
         net.forward(outs, all);
         std::string decoded;
+        std::vector<std::string> heads;
         for(size_t i = 0; i < outs.size(); i++)
+        {
             if(outs[i].dims == 3) decoded = all[i];
+            if(outs[i].dims == 5) heads.push_back(all[i]);
+        }
 
         res.push_back(timeIt(net, blob, all, std::string(c.name) + " all4", iters));
+        // raw heads only: if OpenCV then skips the decoding layers (model.24 Mul/Pow/...), decoding on the CPU
+        // for the few cells above the objectness threshold would be cheaper
+        if(heads.size() == 3)
+            res.push_back(timeIt(net, blob, heads, std::string(c.name) + " heads", iters));
         if(!decoded.empty())
             res.push_back(timeIt(net, blob, {decoded}, std::string(c.name) + " decoded", iters));
 

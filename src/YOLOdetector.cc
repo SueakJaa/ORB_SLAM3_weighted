@@ -73,11 +73,25 @@ bool YOLOdetector::LoadModel(const std::string &modelPath)
     cv::Mat dummy(640, 640, CV_8UC3, cv::Scalar(0, 0, 0));
     cv::Mat blob;
     cv::dnn::blobFromImage(dummy, blob, 1/255.0, cv::Size(640, 640), cv::Scalar(), true, false);
+    // Request only the decoded output [1, N, 85] when the model has one: the three raw heads are not used then,
+    // and copying them back from the GPU costs ~1.5 ms per frame (tools/yolo_bench, 25 Nov). Same detections.
+    mvOutNames = net.getUnconnectedOutLayersNames();
+    {
+        net.setInput(blob);
+        std::vector<cv::Mat> first;
+        net.forward(first, mvOutNames);
+        for(size_t i = 0; i < first.size() && i < mvOutNames.size(); i++)
+            if(first[i].dims == 3 && first[i].size[2] == 85)
+            {
+                mvOutNames = {mvOutNames[i]};
+                break;
+            }
+    }
     for(int i = 0; i < 5; i++)   // several passes: CUDA/cuDNN initialisation and kernel selection
     {
         net.setInput(blob);
         std::vector<cv::Mat> warm;
-        net.forward(warm, net.getUnconnectedOutLayersNames());
+        net.forward(warm, mvOutNames);
     }
 
     return true;
@@ -135,7 +149,7 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
     //      YOLOv5's Detect layer (checked against an official decoded export: max diff 2e-4).
     std::vector<cv::Mat> outs;
     const clk::time_point tFwd0 = clk::now();
-    net.forward(outs, net.getUnconnectedOutLayersNames());
+    net.forward(outs, mvOutNames);
     const clk::time_point tFwd1 = clk::now();
     mfPreMs = ms(tPre0, tFwd0);
     mfFwdMs = ms(tFwd0, tFwd1);
