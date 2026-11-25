@@ -3,6 +3,7 @@
 #include <iostream>
 #include <cmath>
 #include <opencv2/core/cuda.hpp>
+#include <chrono>
 
 YOLOdetector::YOLOdetector()
 {
@@ -48,6 +49,7 @@ bool YOLOdetector::LoadModel(const std::string &modelPath)
         net.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
         net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
     }
+    mbGpu = useGpu;
     std::cout << "[YOLO] backend = " << (useGpu ? "CUDA (GPU)" : "OpenCV (CPU)") << std::endl;
 
     // Warm-up: the first forward pass initialises CUDA/cuDNN (can take ~1 s);
@@ -71,6 +73,10 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
 
     const bool verbose = ORB_SLAM3::DynamicConfig::Get().verbose;
     if(verbose) std::cout << "[YOLO] Infer called" << std::endl;
+
+    using clk = std::chrono::steady_clock;
+    auto ms = [](clk::time_point a, clk::time_point b) { return std::chrono::duration<float, std::milli>(b - a).count(); };
+    const clk::time_point tPre0 = clk::now();
 
     // ===== Preprocess =====
     // Letterbox (YOLOv5 standard): resize keeping the aspect ratio, pad to 640x640 with grey 114.
@@ -108,7 +114,11 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
     //      net.forward() alone returns only one of them. They are decoded here exactly like
     //      YOLOv5's Detect layer (checked against an official decoded export: max diff 2e-4).
     std::vector<cv::Mat> outs;
+    const clk::time_point tFwd0 = clk::now();
     net.forward(outs, net.getUnconnectedOutLayersNames());
+    const clk::time_point tFwd1 = clk::now();
+    mfPreMs = ms(tPre0, tFwd0);
+    mfFwdMs = ms(tFwd0, tFwd1);
 
     std::vector<float> dets;           // decoded rows of 85 floats: cx, cy, w, h, obj, 80 class scores
     bool haveDecoded = false;
@@ -175,6 +185,7 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
         mConfidenceMap = confMap.clone();
         mnLastDetections = 0;
         mvLastBoxes.clear();
+        mfPostMs = ms(tFwd1, clk::now());
         return cv::Mat(image.rows, image.cols, CV_8UC1, cv::Scalar(255));
     }
 
@@ -278,18 +289,14 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
         // ===== DRAW MASK =====
         cv::rectangle(mask, cv::Rect(new_x, new_y, new_w, new_h), 0, -1);
 
-        // ===== UPDATE CONF MAP (CORRECT PLACE) =====
-        for(int yy = new_y; yy < new_y + new_h; yy++)
+        // ===== UPDATE CONF MAP =====
+        // per-pixel max over the (clipped) box: same result as the former per-pixel loop, done by OpenCV
         {
-            for(int xx = new_x; xx < new_x + new_w; xx++)
+            const cv::Rect r = cv::Rect(new_x, new_y, new_w, new_h) & cv::Rect(0, 0, image.cols, image.rows);
+            if(r.area() > 0)
             {
-                if(yy >= 0 && yy < image.rows && xx >= 0 && xx < image.cols)
-                {
-                    confMap.at<float>(yy, xx) = std::max(
-                        confMap.at<float>(yy, xx),
-                        confidence
-                    );
-                }
+                cv::Mat roi = confMap(r);
+                cv::max(roi, static_cast<double>(confidence), roi);
             }
         }
 
@@ -297,11 +304,11 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
         data += 85;
     }
 
-    // ✅ AFTER LOOP ONLY
-    mConfidenceMap = confMap.clone();
+    mConfidenceMap = confMap;   // local Mat, no copy needed
 
     // optional smoothing
     cv::dilate(mask, mask, cv::Mat(), cv::Point(-1,-1), 1);
+    mfPostMs = ms(tFwd1, clk::now());
 
     return mask;
 }

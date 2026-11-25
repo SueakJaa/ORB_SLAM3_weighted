@@ -37,6 +37,7 @@
 #include <iomanip>
 #include <cmath>
 #include <algorithm>
+#include <future>
 
 
 using namespace std;
@@ -1534,6 +1535,21 @@ Sophus::SE3f Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat 
 Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, const double &timestamp, string filename)
 {
     const std::chrono::steady_clock::time_point tGrab0 = std::chrono::steady_clock::now();
+
+    // DSLAM_YOLO_PARALLEL: start YOLO on this frame now; the ORB extraction below runs at the same time.
+    // Infer() reads only imRGB (the grey conversion below writes a new buffer) and the detector's own members,
+    // and the result is collected before anything uses it, so the detections are the same as in serial mode.
+    std::future<cv::Mat> yoloFuture;
+    float yoloAsyncMs = 0.0f;
+    const bool yoloParallel = mbUseYOLO && mpYOLO && DynamicConfig::Get().yoloParallel;
+    if(yoloParallel)
+        yoloFuture = std::async(std::launch::async, [this, &imRGB, &yoloAsyncMs]() {
+            const auto t0 = std::chrono::steady_clock::now();
+            cv::Mat m = mpYOLO->Infer(imRGB);
+            yoloAsyncMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            return m;
+        });
+
     mImGray = imRGB;
     cv::Mat imDepth = imD;
 
@@ -1573,10 +1589,17 @@ Sophus::SE3f Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, co
         if(verbose) std::cout << "[Tracking] Calling YOLO..." << std::endl;
 
         std::chrono::steady_clock::time_point tYolo0 = std::chrono::steady_clock::now();
-        cv::Mat mask = mpYOLO->Infer(imRGB);
+        cv::Mat mask = yoloParallel ? yoloFuture.get() : mpYOLO->Infer(imRGB);
         std::chrono::steady_clock::time_point tYolo1 = std::chrono::steady_clock::now();
-        mdYoloTimeTotal += std::chrono::duration_cast<std::chrono::duration<double> >(tYolo1 - tYolo0).count();
-        mvTimeYoloMs.push_back(std::chrono::duration<float, std::milli>(tYolo1 - tYolo0).count());
+        // yolo_ms = YOLO's own duration in both modes; yolo_wait_ms = how long tracking actually waited for it
+        const float yoloMs = yoloParallel ? yoloAsyncMs
+                                          : std::chrono::duration<float, std::milli>(tYolo1 - tYolo0).count();
+        mdYoloTimeTotal += yoloMs / 1000.0;
+        mvTimeYoloMs.push_back(yoloMs);
+        mvTimeYoloWaitMs.push_back(std::chrono::duration<float, std::milli>(tYolo1 - tYolo0).count());
+        mvTimeYoloPreMs.push_back(mpYOLO->mfPreMs);
+        mvTimeYoloFwdMs.push_back(mpYOLO->mfFwdMs);
+        mvTimeYoloPostMs.push_back(mpYOLO->mfPostMs);
         mnYoloFrames++;
         if(mpYOLO->mnLastDetections > 0) mnYoloFramesWithDet++;
 
@@ -4598,6 +4621,11 @@ void Tracking::PrintDynamicStats()
     std::cout << "[Timing] frames=" << mvTimeTotalMs.size();
     TimingLine("orb_ms", mvTimeOrbMs);
     TimingLine("yolo_ms", mvTimeYoloMs);
+    TimingLine("yolo_pre_ms", mvTimeYoloPreMs);
+    TimingLine("yolo_fwd_ms", mvTimeYoloFwdMs);
+    TimingLine("yolo_post_ms", mvTimeYoloPostMs);
+    TimingLine("yolo_wait_ms", mvTimeYoloWaitMs);
+    if(mpYOLO) std::cout << " yolo_backend=" << (mpYOLO->mbGpu ? "cuda" : "cpu");
     TimingLine("track_ms", mvTimeTrackMs);
     TimingLine("total_ms", mvTimeTotalMs);
     if(mpLocalMapper)

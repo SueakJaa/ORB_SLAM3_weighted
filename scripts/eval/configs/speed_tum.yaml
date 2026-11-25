@@ -1,0 +1,38 @@
+# Speed step 1 (25 Nov): where YOLO's time goes, and running YOLO beside ORB extraction on the same frame.
+#   GEOK2Z_MF      serial, as reported (new: yolo_pre/fwd/post/wait_ms and yolo_backend in the [Timing] line)
+#   GEOK2Z_MF_PAR  identical method, DSLAM_YOLO_PARALLEL=1: YOLO runs in a second thread while ORB features of the
+#                  SAME frame are extracted. Same detections on the same frame, so accuracy should be unchanged;
+#                  only total_ms should drop (to about max(orb, yolo) + tracking).
+# Close other programs while it runs. 3 runs x 3 sequences x 2 variants.
+name: speed_tum
+runs: 3
+orbslam_root: ~/ORB_SLAM3
+data_root: ~/datasets
+results_root: results
+fail_threshold_m: 0.1
+
+common_env:
+  DSLAM_MODE: baseline
+  DSLAM_CHI2_GATE: raw
+  DSLAM_LABELS: opt
+  DSLAM_KERNEL: huber
+  DSLAM_IGNORE: ""
+  DSLAM_KF_SEMANTIC: 0
+  DSLAM_DIAG: 0
+  DSLAM_KF_CAP_BYPASS: 0
+
+baseline: GEOK2Z_MF
+variants:
+  GEOK2Z_MF:     {DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10,
+                  DSLAM_KF_SWITCH_GEO: 0.3, DSLAM_KF_SWITCH_GEO_Z: 3.09, DSLAM_KF_SWITCH_GEO_KEEP: 150,
+                  DSLAM_KF_SWITCH_GEO_MINCONF: 2,
+                  DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1}
+  GEOK2Z_MF_PAR: {DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10,
+                  DSLAM_KF_SWITCH_GEO: 0.3, DSLAM_KF_SWITCH_GEO_Z: 3.09, DSLAM_KF_SWITCH_GEO_KEEP: 150,
+                  DSLAM_KF_SWITCH_GEO_MINCONF: 2,
+                  DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1,
+                  DSLAM_YOLO_PARALLEL: 1}
+sequences:
+  - freiburg3_walking_xyz
+  - freiburg3_walking_rpy
+  - freiburg1_room

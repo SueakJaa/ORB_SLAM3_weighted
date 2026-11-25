@@ -16,6 +16,8 @@ public:
     cv::Mat mConfidenceMap;
     int mnLastDetections = 0;   // dynamic-class boxes kept in the last Infer() call
     std::vector<cv::Rect> mvLastBoxes;   // those boxes (shrunk as in the confidence map), image pixels
+    float mfPreMs = 0, mfFwdMs = 0, mfPostMs = 0;   // last Infer(): letterbox+blob, network, decode+mask [ms]
+    bool  mbGpu = false;                            // CUDA backend in use
 private:
     cv::dnn::Net net;   // the model
 };

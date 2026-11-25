@@ -93,6 +93,7 @@ public:
     long   mnDepthTrigHits = 0, mnDepthTrigActive = 0, mnDepthTrigMarked = 0, mnDepthTrigIgnored = 0;
     // per-module timing of GrabImageRGBD [ms per frame], printed as [Timing] at shutdown
     std::vector<float> mvTimeOrbMs, mvTimeYoloMs, mvTimeTrackMs, mvTimeTotalMs;
+    std::vector<float> mvTimeYoloPreMs, mvTimeYoloFwdMs, mvTimeYoloPostMs, mvTimeYoloWaitMs;
     void PrintDynamicStats();
 
     // Preprocess the input and call Track(). Extract features and performs stereo matching.

@@ -98,6 +98,8 @@ struct DynamicConfig
     bool        verbose    = false;
     bool        yoloGpu    = true;
     bool        yoloLetterbox = true; // DSLAM_YOLO_LETTERBOX
+    int         yoloParallel = 0;     // DSLAM_YOLO_PARALLEL: 1 = run YOLO in a second thread while the ORB features of
+                                      // the SAME frame are extracted (same detections, same frame: only the wall time changes)
     enum Gate   { GATE_WEIGHTED = 0, GATE_RAW = 1, GATE_LATE = 2 };
     enum Kernel { KERNEL_HUBER = 0, KERNEL_CAUCHY = 1, KERNEL_WELSCH = 2 };
     enum Labels { LABELS_OPT = 0, LABELS_RAW = 1, LABELS_NONE = 2 };
@@ -227,6 +229,7 @@ private:
         if(const char* s = std::getenv("DSLAM_VERBOSE"))    c.verbose   = std::atoi(s) != 0;
         if(const char* s = std::getenv("DSLAM_YOLO_GPU"))   c.yoloGpu   = std::atoi(s) != 0;
         if(const char* s = std::getenv("DSLAM_YOLO_LETTERBOX")) c.yoloLetterbox = std::atoi(s) != 0;
+        if(const char* s = std::getenv("DSLAM_YOLO_PARALLEL"))  c.yoloParallel  = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_CHI2_GATE"))
         {
             std::string g(s);
@@ -312,7 +315,7 @@ private:
                   << " second_opt=" << c.secondOpt
                   << " verbose=" << c.verbose
                   << " yolo_gpu=" << c.yoloGpu
-                  << " yolo_letterbox=" << c.yoloLetterbox
+                  << " yolo_letterbox=" << c.yoloLetterbox << " yolo_parallel=" << c.yoloParallel
                   << " chi2_gate=" << c.GateName()
                   << " kernel=" << c.KernelName()
                   << " labels=" << c.LabelsName()
