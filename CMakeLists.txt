@@ -146,6 +146,11 @@ add_executable(rgbd_tum
         Examples/RGB-D/rgbd_tum.cc)
 target_link_libraries(rgbd_tum ${PROJECT_NAME})
 
+# speed step 2: YOLO network benchmark (CPU / CUDA / CUDA FP16), binary in tools/
+add_executable(yolo_bench tools/yolo_bench.cc)
+target_link_libraries(yolo_bench ${OpenCV_LIBS})
+set_target_properties(yolo_bench PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/tools)
+
 if(realsense2_FOUND)
     add_executable(rgbd_realsense_D435i
             Examples/RGB-D/rgbd_realsense_D435i.cc)
