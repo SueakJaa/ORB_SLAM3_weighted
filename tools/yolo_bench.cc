@@ -4,7 +4,7 @@
 //
 // For CPU, CUDA FP32 and CUDA FP16 it times net.forward() two ways:
 //   all4    all four ONNX outputs (what YOLOdetector does now: three raw heads + the decoded [1,25200,85])
-//   decoded only the decoded output (the three heads are 6.4 M floats = 25.7 MB more to copy back per frame)
+//   decoded only the decoded output (the three raw heads are 2.1 M floats = 8.6 MB more to copy back per frame)
 // and prints the slowest layers of the CUDA run (getPerfProfile), so a layer that falls back to the CPU shows up.
 #include <opencv2/opencv.hpp>
 #include <opencv2/dnn.hpp>
