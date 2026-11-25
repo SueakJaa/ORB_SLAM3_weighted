@@ -48,6 +48,13 @@ variants:
                  DSLAM_KF_SWITCH_GEO_MINCONF: 2,
                  DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1,
                  DSLAM_MAP_DEPTH_TEST: 1, DSLAM_MAP_DEPTH_GAP: 30, DSLAM_MAP_DEPTH_VIEWS: 2}
+  # speed (25 Nov): the same method with YOLO run beside ORB extraction on the same frame (DSLAM_YOLO_PARALLEL=1)
+  # and only the decoded YOLO output requested. Same detections; ~27-31 ms/frame instead of ~37-46 (speed_tum).
+  GEOK2Z_MF_PAR: {DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10,
+                 DSLAM_KF_SWITCH_GEO: 0.3, DSLAM_KF_SWITCH_GEO_Z: 3.09, DSLAM_KF_SWITCH_GEO_KEEP: 150,
+                 DSLAM_KF_SWITCH_GEO_MINCONF: 2,
+                 DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1,
+                 DSLAM_YOLO_PARALLEL: 1}
 sequences:
   - freiburg3_walking_xyz
   - freiburg3_walking_static
