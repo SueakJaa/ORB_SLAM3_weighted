@@ -97,6 +97,7 @@ struct DynamicConfig
     bool        secondOpt  = false;
     bool        verbose    = false;
     bool        yoloGpu    = true;
+    int         yoloFp16   = 0;      // DSLAM_YOLO_FP16: 1 = CUDA half precision (DNN_TARGET_CUDA_FP16)
     bool        yoloLetterbox = true; // DSLAM_YOLO_LETTERBOX
     int         yoloParallel = 0;     // DSLAM_YOLO_PARALLEL: 1 = run YOLO in a second thread while the ORB features of
                                       // the SAME frame are extracted (same detections, same frame: only the wall time changes)
@@ -228,6 +229,7 @@ private:
         if(const char* s = std::getenv("DSLAM_SECOND_OPT")) c.secondOpt = std::atoi(s) != 0;
         if(const char* s = std::getenv("DSLAM_VERBOSE"))    c.verbose   = std::atoi(s) != 0;
         if(const char* s = std::getenv("DSLAM_YOLO_GPU"))   c.yoloGpu   = std::atoi(s) != 0;
+        if(const char* s = std::getenv("DSLAM_YOLO_FP16"))  c.yoloFp16  = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_YOLO_LETTERBOX")) c.yoloLetterbox = std::atoi(s) != 0;
         if(const char* s = std::getenv("DSLAM_YOLO_PARALLEL"))  c.yoloParallel  = std::atoi(s);
         if(const char* s = std::getenv("DSLAM_CHI2_GATE"))
@@ -314,7 +316,7 @@ private:
                   << " yolo_conf=" << c.yoloConf
                   << " second_opt=" << c.secondOpt
                   << " verbose=" << c.verbose
-                  << " yolo_gpu=" << c.yoloGpu
+                  << " yolo_gpu=" << c.yoloGpu << " yolo_fp16=" << c.yoloFp16
                   << " yolo_letterbox=" << c.yoloLetterbox << " yolo_parallel=" << c.yoloParallel
                   << " chi2_gate=" << c.GateName()
                   << " kernel=" << c.KernelName()

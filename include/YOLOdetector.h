@@ -18,6 +18,7 @@ public:
     std::vector<cv::Rect> mvLastBoxes;   // those boxes (shrunk as in the confidence map), image pixels
     float mfPreMs = 0, mfFwdMs = 0, mfPostMs = 0;   // last Infer(): letterbox+blob, network, decode+mask [ms]
     bool  mbGpu = false;                            // CUDA backend in use
+    bool  mbFp16 = false;                           // ... with half precision
 private:
     cv::dnn::Net net;   // the model
 };

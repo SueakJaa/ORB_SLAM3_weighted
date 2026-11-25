@@ -4,6 +4,7 @@
 #include <cmath>
 #include <opencv2/core/cuda.hpp>
 #include <chrono>
+#include <algorithm>
 
 YOLOdetector::YOLOdetector()
 {
@@ -26,22 +27,36 @@ bool YOLOdetector::LoadModel(const std::string &modelPath)
     std::cout << "YOLO model loaded: " << modelPath << std::endl;
 
     // ===== Backend selection =====
-    // CUDA is used only if requested AND OpenCV was built with CUDA AND a GPU is visible.
-    // FP32 target (not FP16) so detections match the CPU version as closely as possible.
+    // CUDA is used only if requested AND OpenCV's DNN module has a CUDA backend AND a GPU is visible.
+    // getCudaEnabledDeviceCount() > 0 alone is not enough: OpenCV can be built with CUDA core modules but a DNN
+    // module without the CUDA backend (no cuDNN); then setPreferableBackend(CUDA) only prints a warning and the
+    // network silently runs on the CPU. So the DNN module's own list of CUDA targets is checked.
+    // FP32 target by default (detections match the CPU version); DSLAM_YOLO_FP16=1 uses half precision.
     bool useGpu = false;
+    std::vector<cv::dnn::Target> cudaTargets;
+    try { cudaTargets = cv::dnn::getAvailableTargets(cv::dnn::DNN_BACKEND_CUDA); } catch(...) {}
+    auto hasTarget = [&](cv::dnn::Target t) { return std::find(cudaTargets.begin(), cudaTargets.end(), t) != cudaTargets.end(); };
+    std::cout << "[YOLO] DNN CUDA targets available:";
+    if(cudaTargets.empty()) std::cout << " none (DNN module built without the CUDA backend)";
+    for(cv::dnn::Target t : cudaTargets)
+        std::cout << (t == cv::dnn::DNN_TARGET_CUDA ? " CUDA" : t == cv::dnn::DNN_TARGET_CUDA_FP16 ? " CUDA_FP16" : " other");
+    std::cout << std::endl;
     if(ORB_SLAM3::DynamicConfig::Get().yoloGpu)
     {
         int nDev = 0;
         try { nDev = cv::cuda::getCudaEnabledDeviceCount(); } catch(...) { nDev = 0; }
-        if(nDev > 0)
+        const bool fp16 = ORB_SLAM3::DynamicConfig::Get().yoloFp16 && hasTarget(cv::dnn::DNN_TARGET_CUDA_FP16);
+        if(nDev > 0 && (hasTarget(cv::dnn::DNN_TARGET_CUDA) || fp16))
         {
             net.setPreferableBackend(cv::dnn::DNN_BACKEND_CUDA);
-            net.setPreferableTarget(cv::dnn::DNN_TARGET_CUDA);
+            net.setPreferableTarget(fp16 ? cv::dnn::DNN_TARGET_CUDA_FP16 : cv::dnn::DNN_TARGET_CUDA);
             useGpu = true;
+            mbFp16 = fp16;
         }
         else
         {
-            std::cout << "[YOLO] CUDA requested but not available in this OpenCV build -> CPU" << std::endl;
+            std::cout << "[YOLO] CUDA requested but not usable (devices " << nDev << ", DNN CUDA targets "
+                      << cudaTargets.size() << ") -> CPU" << std::endl;
         }
     }
     if(!useGpu)
@@ -50,15 +65,20 @@ bool YOLOdetector::LoadModel(const std::string &modelPath)
         net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
     }
     mbGpu = useGpu;
-    std::cout << "[YOLO] backend = " << (useGpu ? "CUDA (GPU)" : "OpenCV (CPU)") << std::endl;
+    std::cout << "[YOLO] backend = " << (useGpu ? (mbFp16 ? "CUDA FP16 (GPU)" : "CUDA (GPU)") : "OpenCV (CPU)")
+              << ", cv::getNumThreads()=" << cv::getNumThreads() << std::endl;
 
     // Warm-up: the first forward pass initialises CUDA/cuDNN (can take ~1 s);
     // do it here so it is not counted in the per-frame timing.
     cv::Mat dummy(640, 640, CV_8UC3, cv::Scalar(0, 0, 0));
     cv::Mat blob;
     cv::dnn::blobFromImage(dummy, blob, 1/255.0, cv::Size(640, 640), cv::Scalar(), true, false);
-    net.setInput(blob);
-    net.forward();
+    for(int i = 0; i < 5; i++)   // several passes: CUDA/cuDNN initialisation and kernel selection
+    {
+        net.setInput(blob);
+        std::vector<cv::Mat> warm;
+        net.forward(warm, net.getUnconnectedOutLayersNames());
+    }
 
     return true;
 }
