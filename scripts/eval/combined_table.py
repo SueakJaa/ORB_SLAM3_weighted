@@ -27,11 +27,14 @@ TUM = ["freiburg3_walking_xyz", "freiburg3_walking_static", "freiburg3_walking_h
        "freiburg2_desk_with_person", "freiburg1_room", "freiburg1_desk", "freiburg1_desk2", "freiburg1_360"]
 BONN = ["bonn_balloon", "bonn_balloon2", "bonn_crowd", "bonn_crowd2", "bonn_person_tracking", "bonn_person_tracking2",
         "bonn_moving_nonobstructing_box", "bonn_moving_obstructing_box", "bonn_synchronous", "bonn_static"]
+LABELS = {"A0_orbslam3": "ORB-SLAM3", "GEOK2Z_MF_PAR_TRT": "GEOK2Z_MF real-time"}
 VARIANTS = [("A0_orbslam3", "ORB-SLAM3"), ("GEOK2_G10", "GEOK2_G10"), ("GEOK2_MF", "GEOK2_MF"),
             ("GEOK2Z_MF", "GEOK2Z_MF")]
+TEST = ("GEOK2Z_MF", "GEOK2_MF")   # p = TEST[0] vs TEST[1]
 # where each variant's runs live: TUM GEOK2_G10 was only run in the ablation experiment
-TUM_SRC = {"A0_orbslam3": "thesis_z", "GEOK2_G10": "thesis_final", "GEOK2_MF": "thesis_z", "GEOK2Z_MF": "thesis_z"}
-BONN_SRC = {v: "bonn_baseline" for v, _ in VARIANTS}
+TUM_SRC = {"A0_orbslam3": "thesis_z", "GEOK2_G10": "thesis_final", "GEOK2_MF": "thesis_z", "GEOK2Z_MF": "thesis_z",
+           "GEOK2Z_MF_PAR_TRT": "thesis_z", "GEOK2Z_MF_PAR": "thesis_z", "GEOK2Z_MFD30V2": "thesis_z"}
+BONN_SRC = {v: "bonn_baseline" for v in TUM_SRC}
 FAIL_M = 0.1
 
 
@@ -71,12 +74,12 @@ def fmt_p(p):
 def block(title, seqs, src, n, data):
     lines = [f"**{title}** ({n} runs per variant)", "",
              "| Sequence | " + " | ".join(f"{lab} ATE / fail / track%" for _, lab in VARIANTS) +
-             " | p (Z vs MF) | p Holm |",
+             f" | p ({TEST[0]} vs {TEST[1]}) | p Holm |",
              "|---|" + "---|" * len(VARIANTS) + "---|---|"]
     cells, ps = [], []
     for s in seqs:
         c = {v: cell_stats(data[src[v]], s, v, n) for v, _ in VARIANTS}
-        a, b = c["GEOK2Z_MF"]["ate"], c["GEOK2_MF"]["ate"]
+        a, b = c[TEST[0]]["ate"], c[TEST[1]]["ate"]
         ps.append(mann_whitney_p(a, b) if len(a) >= 3 and len(b) >= 3 else None)
         cells.append(c)
     ph = holm(ps)
@@ -99,10 +102,26 @@ def main():
     ap.add_argument("--root", default="results")
     ap.add_argument("--tum-runs", type=int, default=10)
     ap.add_argument("--bonn-runs", type=int, default=5)
+    ap.add_argument("--variants", nargs="+", default=None,
+                    help="variant names in column order (default: ORB-SLAM3, GEOK2_G10, GEOK2_MF, GEOK2Z_MF)")
+    ap.add_argument("--test", nargs=2, default=None, metavar=("A", "B"),
+                    help="Mann-Whitney of A against B (default: GEOK2Z_MF GEOK2_MF)")
+    ap.add_argument("--out", default="combined_table.md")
     a = ap.parse_args()
-    data = {e: load(a.root, e) for e in set(TUM_SRC.values()) | set(BONN_SRC.values())}
+    global VARIANTS, TEST
+    if a.variants:
+        VARIANTS = [(v, LABELS.get(v, v)) for v in a.variants]
+    if a.test:
+        TEST = tuple(a.test)
+    missing = [v for v in [x for x, _ in VARIANTS] + list(TEST) if v not in TUM_SRC]
+    if missing:
+        sys.exit(f"unknown variant(s) {missing}; known: {sorted(TUM_SRC)}")
+    if TEST[0] not in [v for v, _ in VARIANTS] or TEST[1] not in [v for v, _ in VARIANTS]:
+        sys.exit("both --test variants must be among --variants")
+    used = [v for v, _ in VARIANTS]
+    data = {e: load(a.root, e) for e in {TUM_SRC[v] for v in used} | {BONN_SRC[v] for v in used}}
     out = ["ATE = median over runs of ATE RMSE [m]; fail = runs with ATE > 0.1 m or crashed; "
-           "track% = mean share of frames with a pose. p = Mann-Whitney U, GEOK2Z_MF vs GEOK2_MF.", ""]
+           f"track% = mean share of frames with a pose. p = Mann-Whitney U, {TEST[0]} vs {TEST[1]}.", ""]
     l1, w1 = block("TUM RGB-D", TUM, TUM_SRC, a.tum_runs, data)
     l2, w2 = block("Bonn RGB-D Dynamic", BONN, BONN_SRC, a.bonn_runs, data)
     out += l1 + [""] + l2
@@ -110,9 +129,9 @@ def main():
         out += ["", "Missing runs: " + "; ".join(w1 + w2)]
     txt = "\n".join(out) + "\n"
     print(txt)
-    with open(os.path.join(a.root, "combined_table.md"), "w") as f:
+    with open(os.path.join(a.root, a.out), "w") as f:
         f.write(txt)
-    print(f"-> {os.path.join(a.root, 'combined_table.md')}")
+    print(f"-> {os.path.join(a.root, a.out)}")
 
 
 if __name__ == "__main__":
