@@ -55,6 +55,13 @@ variants:
                  DSLAM_KF_SWITCH_GEO_MINCONF: 2,
                  DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1,
                  DSLAM_YOLO_PARALLEL: 1}
+  # speed (26 Nov): parallel YOLO + TensorRT FP32 network (scripts/trt/README.md). Same candidates as OpenCV on
+  # 35 walking_xyz frames (328/328, max score diff 2e-6); 17-22 ms/frame in speed_tum.
+  GEOK2Z_MF_PAR_TRT: {DSLAM_KF_SWITCH: 1, DSLAM_KF_MIN_GAP: 10,
+                 DSLAM_KF_SWITCH_GEO: 0.3, DSLAM_KF_SWITCH_GEO_Z: 3.09, DSLAM_KF_SWITCH_GEO_KEEP: 150,
+                 DSLAM_KF_SWITCH_GEO_MINCONF: 2,
+                 DSLAM_MAP_FILTER: 2, DSLAM_MAP_FILTER_DEPTH: 0.5, DSLAM_MAP_FILTER_SITES: 3, DSLAM_MAP_FILTER_INIT: -1,
+                 DSLAM_YOLO_PARALLEL: 1, DSLAM_YOLO_TRT: /home/shirt/yolov5_models/yolov5n_fp32.engine}
 sequences:
   - freiburg3_walking_xyz
   - freiburg3_walking_static
