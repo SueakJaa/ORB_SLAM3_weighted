@@ -374,23 +374,29 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
 }
 
 // Letterbox + blobFromImage(1/255, swapRB) without the 640x640 copy, for frames that need no resize.
-// The blob (1x3x640x640 float) is kept between frames; the grey padding (114) is written when it is created,
-// and per frame only the image rows of each channel plane are converted, with the same two steps as
-// blobFromImage (convert to float, then multiply by 1/255), so the values are the same.
+// The blob (1x3x640x640 float) is kept between frames and the grey padding (114) is written once. Per frame each
+// image channel is mapped through a 256-entry table holding exactly what this OpenCV's blobFromImage produces for
+// each 8-bit value (computed once from a 1x256 image). blobFromImage is a per-pixel function of the value when no
+// resize happens, so the result is the same as the standard path on any OpenCV version (OpenCV 4.6 and 4.8 round
+// value*(1/255) differently by 1 ulp, so recomputing the formula here would not be).
 bool YOLOdetector::FastBlob(const cv::Mat& image, int px, int py)
 {
     if(px != 0 || image.cols != 640 || image.rows + 2 * py > 640)
         return false;   // only the "pad top and bottom" case of 640-wide frames
+    if(mLut.empty())
+    {
+        cv::Mat ramp(1, 256, CV_8UC3);
+        for(int v = 0; v < 256; v++) ramp.at<cv::Vec3b>(0, v) = cv::Vec3b(v, v, v);
+        cv::Mat rb;
+        cv::dnn::blobFromImage(ramp, rb, 1/255.0, cv::Size(256, 1), cv::Scalar(), true, false);
+        mLut = cv::Mat(1, 256, CV_32F, rb.ptr<float>(0, 0)).clone();
+    }
     if(mBlob.empty() || mBlobImgSize != image.size() || mBlobPx != px || mBlobPy != py)
     {
-        // padding exactly as blobFromImage computes it from a 114-grey pixel
-        cv::Mat grey(1, 1, CV_8UC3, cv::Scalar(114, 114, 114));
-        cv::Mat gb;
-        cv::dnn::blobFromImage(grey, gb, 1/255.0, cv::Size(1, 1), cv::Scalar(), true, false);
         const int sz[4] = {1, 3, 640, 640};
         mBlob.create(4, sz, CV_32F);
         for(int c = 0; c < 3; c++)
-            cv::Mat(640, 640, CV_32F, mBlob.ptr<float>(0, c)).setTo(gb.ptr<float>(0, c)[0]);
+            cv::Mat(640, 640, CV_32F, mBlob.ptr<float>(0, c)).setTo(mLut.at<float>(0, 114));
         mBlobImgSize = image.size();
         mBlobPx = px;
         mBlobPy = py;
@@ -401,8 +407,8 @@ bool YOLOdetector::FastBlob(const cv::Mat& image, int px, int py)
     {
         cv::Mat plane(640, 640, CV_32F, mBlob.ptr<float>(0, c));
         cv::Mat roi = plane(cv::Rect(0, py, image.cols, image.rows));
-        ch[2 - c].convertTo(roi, CV_32F);
-        roi *= 1/255.0;
+        cv::LUT(ch[2 - c], mLut, roi);   // writes into the blob (roi already has the right size and type)
+        CV_Assert(roi.data == plane.ptr<uchar>(py));   // LUT did not reallocate
     }
     return true;
 }

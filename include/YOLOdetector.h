@@ -28,5 +28,6 @@ private:
     cv::Size mBlobImgSize;
     int mBlobPx = -1, mBlobPy = -1;
     bool mbFastBlobOk = false;   // set by the check in LoadModel
+    cv::Mat mLut;                // 1x256 float: blobFromImage's value for each 8-bit level
     bool FastBlob(const cv::Mat& image, int px, int py);
 };
