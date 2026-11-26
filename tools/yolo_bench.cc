@@ -1,8 +1,9 @@
 // yolo_bench: where does YOLO's network time go? (speed step 2, 25 Nov)
 //
-//   ./tools/yolo_bench /home/shirt/yolov5_models/yolov5n.onnx [iterations] [engine.trt] [frame.png]
+//   ./tools/yolo_bench /home/shirt/yolov5_models/yolov5n.onnx [iterations] [engine.trt] [frame.png ...]
 //   With an engine (scripts/trt/build_engine.py) it also times TensorRT and compares its decoded output with
-//   OpenCV CUDA on the same input (a real frame if given, else random pixels).
+//   OpenCV CUDA, frame by frame, on all frames given (else random pixels): detector candidates (YOLOdetector's threshold rule, before NMS)
+//   found by each, found by both, and the largest person-score difference among candidates.
 //
 // For CPU, CUDA FP32 and CUDA FP16 it times net.forward() two ways:
 //   all4    all four ONNX outputs (what YOLOdetector does now: three raw heads + the decoded [1,25200,85])
@@ -56,6 +57,8 @@ int main(int argc, char** argv)
     const int iters = argc > 2 ? std::atoi(argv[2]) : 200;
     const std::string enginePath = argc > 3 ? argv[3] : "";
     const std::string framePath = argc > 4 ? argv[4] : "";
+    std::vector<std::string> framePaths;
+    for(int i = 4; i < argc; i++) framePaths.push_back(argv[i]);
 
     // same input as YOLOdetector: 640x480 frame letterboxed into 640x640
     cv::Mat frame(480, 640, CV_8UC3);
@@ -153,25 +156,72 @@ int main(int argc, char** argv)
             std::vector<double> s = t;
             std::sort(s.begin(), s.end());
             res.push_back({"TensorRT decoded", median(t), s[std::min(s.size() - 1, (size_t)(0.95 * s.size()))]});
-            if(!cudaDecoded.empty() && cudaDecoded.total() == out.total())
+            // frame-by-frame comparison with a fresh OpenCV CUDA network
+            cv::dnn::Net ref = cv::dnn::readNetFromONNX(model);
+            ref.setPreferableBackend(cv::dnn::DNN_BACKEND_CUDA);
+            ref.setPreferableTarget(cv::dnn::DNN_TARGET_CUDA);
+            std::vector<std::string> refNames = ref.getUnconnectedOutLayersNames();
             {
-                // compare: whole output, and the person score obj*cls0 that YOLOdetector thresholds at 0.4
-                const float* a = cudaDecoded.ptr<float>();
-                const float* b = out.ptr<float>();
-                const size_t n = out.total() / 85;
-                double maxAll = 0, maxPerson = 0;
-                int candA = 0, candB = 0, both = 0;
+                std::vector<cv::Mat> o;
+                ref.setInput(blob);
+                ref.forward(o, refNames);
+                for(size_t i = 0; i < o.size(); i++) if(o[i].dims == 3) { refNames = {refNames[i]}; break; }
+            }
+            std::vector<std::string> paths = framePaths;
+            if(paths.empty()) paths.push_back("");   // random frame
+            long candA = 0, candB = 0, both = 0;
+            double maxPersonDiff = 0, maxBoxDiff = 0;
+            int nFrames = 0, framesDiffer = 0;
+            for(const std::string& fp : paths)
+            {
+                cv::Mat fr = frame;
+                if(!fp.empty())
+                {
+                    fr = cv::imread(fp, cv::IMREAD_COLOR);
+                    if(fr.size() != cv::Size(640, 480)) { std::cerr << "skip " << fp << "\n"; continue; }
+                }
+                cv::Mat in(640, 640, CV_8UC3, cv::Scalar(114, 114, 114));
+                fr.copyTo(in(cv::Rect(0, 80, 640, 480)));
+                cv::Mat bl;
+                cv::dnn::blobFromImage(in, bl, 1 / 255.0, cv::Size(640, 640), cv::Scalar(), true, false);
+                std::vector<cv::Mat> o;
+                ref.setInput(bl);
+                ref.forward(o, refNames);
+                cv::Mat t;
+                if(!trt.Infer(bl, t) || o.empty() || o[0].total() != t.total()) continue;
+                const float* pa = o[0].ptr<float>();
+                const float* pb = t.ptr<float>();
+                const size_t n = t.total() / 85;
+                int ca = 0, cb = 0;
                 for(size_t r = 0; r < n; r++)
                 {
-                    for(int k = 0; k < 85; k++) maxAll = std::max(maxAll, (double)std::fabs(a[r * 85 + k] - b[r * 85 + k]));
-                    const double pa = a[r * 85 + 4] * a[r * 85 + 5], pb = b[r * 85 + 4] * b[r * 85 + 5];
-                    maxPerson = std::max(maxPerson, std::fabs(pa - pb));
-                    candA += pa >= 0.4; candB += pb >= 0.4; both += (pa >= 0.4 && pb >= 0.4);
+                    const float* A = pa + r * 85;
+                    const float* B = pb + r * 85;
+                    // YOLOdetector's rule: objectness >= 0.4, best class among 80, obj*best >= 0.4,
+                    // best class one of person/car/motorbike/bus/truck (0,2,3,5,7)
+                    auto cand = [](const float* d, double& score) {
+                        int best = 0;
+                        for(int c = 1; c < 80; c++) if(d[5 + c] > d[5 + best]) best = c;
+                        score = d[4] * d[5 + best];
+                        const bool dyn = best == 0 || best == 2 || best == 3 || best == 5 || best == 7;
+                        return d[4] >= 0.4f && score >= 0.4 && dyn;
+                    };
+                    double sa = 0, sb = 0;
+                    const bool ia = cand(A, sa), ib = cand(B, sb);
+                    ca += ia; cb += ib; both += (ia && ib);
+                    if(ia || ib)
+                    {
+                        maxPersonDiff = std::max(maxPersonDiff, std::fabs(sa - sb));
+                        for(int k = 0; k < 4; k++) maxBoxDiff = std::max(maxBoxDiff, (double)std::fabs(A[k] - B[k]));
+                    }
                 }
-                std::cout << "\nTensorRT vs OpenCV CUDA, same input: max |diff| all values " << maxAll
-                          << ", person score " << maxPerson << "; person candidates >= 0.4: OpenCV " << candA
-                          << ", TensorRT " << candB << ", in both " << both << "\n";
+                candA += ca; candB += cb; framesDiffer += (ca != cb);
+                nFrames++;
             }
+            std::cout << "\nTensorRT vs OpenCV CUDA on " << nFrames << " frame(s): detector candidates (before NMS): OpenCV "
+                      << candA << ", TensorRT " << candB << ", in both " << both << "; frames with a different count "
+                      << framesDiffer << "; among candidates max score diff " << maxPersonDiff
+                      << ", max box diff " << maxBoxDiff << " px\n";
         }
     }
 

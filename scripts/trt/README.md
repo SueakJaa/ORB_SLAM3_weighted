@@ -29,12 +29,12 @@ Without these steps nothing changes: the build finds no TensorRT and YOLO keeps 
 
        cd build && cmake .. | grep -i tensorrt && make -j4 && cd ..
 
-5. Compare with OpenCV on a real frame, and time it:
+5. Compare with OpenCV frame by frame (every 25th frame of walking_xyz, people in view), and time it:
 
-       ./tools/yolo_bench ~/yolov5_models/yolov5n.onnx 200 ~/yolov5_models/yolov5n_fp32.engine $(ls ~/datasets/rgbd_dataset_freiburg3_walking_xyz/rgb/*.png | sed -n 300p)
+       ./tools/yolo_bench ~/yolov5_models/yolov5n.onnx 200 ~/yolov5_models/yolov5n_fp32.engine $(ls ~/datasets/rgbd_dataset_freiburg3_walking_xyz/rgb/*.png | sed -n '1~25p')
 
-   (frame 300 of walking_xyz, people in view.) The person candidates should agree (same count, "in both" equal to both counts) and the person-score
-   difference should be tiny (~1e-4 or less).
+   Counts uses YOLOdetector's own threshold rule (before NMS). Expect OpenCV = TensorRT = "in both" and
+   0 frames with a different count; a candidate exactly at the 0.4 threshold may rarely flip.
 
 6. Use it in SLAM: `DSLAM_YOLO_TRT=/home/shirt/yolov5_models/yolov5n_fp32.engine` (configs/speed_tum.yaml has
    variants). The log shows `[YOLO] backend = TensorRT` and `yolo_backend=tensorrt` in the [Timing] line.
