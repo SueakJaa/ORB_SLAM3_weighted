@@ -73,6 +73,22 @@ bool YOLOdetector::LoadModel(const std::string &modelPath)
     cv::Mat dummy(640, 640, CV_8UC3, cv::Scalar(0, 0, 0));
     cv::Mat blob;
     cv::dnn::blobFromImage(dummy, blob, 1/255.0, cv::Size(640, 640), cv::Scalar(), true, false);
+    // fast pre-processing check: same blob as letterbox + blobFromImage?
+    {
+        cv::Mat img(480, 640, CV_8UC3);
+        cv::randu(img, 0, 256);
+        cv::Mat ref(640, 640, CV_8UC3, cv::Scalar(114, 114, 114, 0));
+        img.copyTo(ref(cv::Rect(0, 80, 640, 480)));
+        cv::Mat refBlob;
+        cv::dnn::blobFromImage(ref, refBlob, 1/255.0, cv::Size(640, 640), cv::Scalar(), true, false);
+        const bool ok = FastBlob(img, 0, 80);
+        const double diff = ok ? cv::norm(refBlob.reshape(1, 1), mBlob.reshape(1, 1), cv::NORM_INF) : -1.0;
+        std::cout << "[YOLO] fast pre-processing check: max |difference| = " << diff
+                  << (diff == 0.0 ? " (identical)" : " (NOT identical -> standard path used)") << std::endl;
+        mbFastBlobOk = (diff == 0.0);
+        mBlob.release();
+    }
+
     // Request only the decoded output [1, N, 85] when the model has one: the three raw heads are not used then,
     // and copying them back from the GPU costs ~1.5 ms per frame (tools/yolo_bench, 25 Nov). Same detections.
     mvOutNames = net.getUnconnectedOutLayersNames();
@@ -128,17 +144,27 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
         const int py = (640 - nh) / 2;
         padX = static_cast<float>(px);
         padY = static_cast<float>(py);
-        cv::Mat resized;
-        if(nw != image.cols || nh != image.rows)
-            cv::resize(image, resized, cv::Size(nw, nh));
+        if(mbFastBlobOk && nw == image.cols && nh == image.rows && image.type() == CV_8UC3 && FastBlob(image, px, py))
+        {
+            input = cv::Mat();   // blob already in mBlob
+        }
         else
-            resized = image;
-        input = cv::Mat(640, 640, image.type(), cv::Scalar(114, 114, 114, 0));
-        resized.copyTo(input(cv::Rect(px, py, nw, nh)));
+        {
+            cv::Mat resized;
+            if(nw != image.cols || nh != image.rows)
+                cv::resize(image, resized, cv::Size(nw, nh));
+            else
+                resized = image;
+            input = cv::Mat(640, 640, image.type(), cv::Scalar(114, 114, 114, 0));
+            resized.copyTo(input(cv::Rect(px, py, nw, nh)));
+        }
     }
 
     cv::Mat blob;
-    cv::dnn::blobFromImage(input, blob, 1/255.0, cv::Size(640, 640), cv::Scalar(), true, false);
+    if(input.empty())
+        blob = mBlob;
+    else
+        cv::dnn::blobFromImage(input, blob, 1/255.0, cv::Size(640, 640), cv::Scalar(), true, false);
     cv::Mat confMap(image.rows, image.cols, CV_32F, cv::Scalar(0));
     net.setInput(blob);
 
@@ -345,4 +371,38 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
     mfPostMs = ms(tFwd1, clk::now());
 
     return mask;
+}
+
+// Letterbox + blobFromImage(1/255, swapRB) without the 640x640 copy, for frames that need no resize.
+// The blob (1x3x640x640 float) is kept between frames; the grey padding (114) is written when it is created,
+// and per frame only the image rows of each channel plane are converted, with the same two steps as
+// blobFromImage (convert to float, then multiply by 1/255), so the values are the same.
+bool YOLOdetector::FastBlob(const cv::Mat& image, int px, int py)
+{
+    if(px != 0 || image.cols != 640 || image.rows + 2 * py > 640)
+        return false;   // only the "pad top and bottom" case of 640-wide frames
+    if(mBlob.empty() || mBlobImgSize != image.size() || mBlobPx != px || mBlobPy != py)
+    {
+        // padding exactly as blobFromImage computes it from a 114-grey pixel
+        cv::Mat grey(1, 1, CV_8UC3, cv::Scalar(114, 114, 114));
+        cv::Mat gb;
+        cv::dnn::blobFromImage(grey, gb, 1/255.0, cv::Size(1, 1), cv::Scalar(), true, false);
+        const int sz[4] = {1, 3, 640, 640};
+        mBlob.create(4, sz, CV_32F);
+        for(int c = 0; c < 3; c++)
+            cv::Mat(640, 640, CV_32F, mBlob.ptr<float>(0, c)).setTo(gb.ptr<float>(0, c)[0]);
+        mBlobImgSize = image.size();
+        mBlobPx = px;
+        mBlobPy = py;
+    }
+    cv::Mat ch[3];
+    cv::split(image, ch);   // B, G, R
+    for(int c = 0; c < 3; c++)   // blob channel order R, G, B (swapRB)
+    {
+        cv::Mat plane(640, 640, CV_32F, mBlob.ptr<float>(0, c));
+        cv::Mat roi = plane(cv::Rect(0, py, image.cols, image.rows));
+        ch[2 - c].convertTo(roi, CV_32F);
+        roi *= 1/255.0;
+    }
+    return true;
 }

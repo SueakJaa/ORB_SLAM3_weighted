@@ -22,4 +22,11 @@ public:
 private:
     cv::dnn::Net net;   // the model
     std::vector<std::string> mvOutNames;   // outputs requested per frame (only the decoded one if the model has it)
+    // fast pre-processing (no resize needed, e.g. 640x480 frames): blob kept between frames, grey padding written
+    // once, only the image rows converted per frame. Same values as letterbox + blobFromImage (checked at load).
+    cv::Mat mBlob;
+    cv::Size mBlobImgSize;
+    int mBlobPx = -1, mBlobPy = -1;
+    bool mbFastBlobOk = false;   // set by the check in LoadModel
+    bool FastBlob(const cv::Mat& image, int px, int py);
 };
