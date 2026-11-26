@@ -1,6 +1,7 @@
 #pragma once
 
 #include <opencv2/opencv.hpp>
+#include "TrtEngine.h"
 #include <opencv2/dnn.hpp>
 #include <vector>
 
@@ -19,6 +20,8 @@ public:
     float mfPreMs = 0, mfFwdMs = 0, mfPostMs = 0;   // last Infer(): letterbox+blob, network, decode+mask [ms]
     bool  mbGpu = false;                            // CUDA backend in use
     bool  mbFp16 = false;                           // ... with half precision
+    bool  mbTrt = false;                            // TensorRT engine used for the network (DSLAM_YOLO_TRT)
+    TrtEngine mTrt;
 private:
     cv::dnn::Net net;   // the model
     std::vector<std::string> mvOutNames;   // outputs requested per frame (only the decoded one if the model has it)

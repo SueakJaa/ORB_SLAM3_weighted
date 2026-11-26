@@ -1,6 +1,8 @@
 // yolo_bench: where does YOLO's network time go? (speed step 2, 25 Nov)
 //
-//   ./tools/yolo_bench /home/shirt/yolov5_models/yolov5n.onnx [iterations]
+//   ./tools/yolo_bench /home/shirt/yolov5_models/yolov5n.onnx [iterations] [engine.trt] [frame.png]
+//   With an engine (scripts/trt/build_engine.py) it also times TensorRT and compares its decoded output with
+//   OpenCV CUDA on the same input (a real frame if given, else random pixels).
 //
 // For CPU, CUDA FP32 and CUDA FP16 it times net.forward() two ways:
 //   all4    all four ONNX outputs (what YOLOdetector does now: three raw heads + the decoded [1,25200,85])
@@ -10,6 +12,8 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/dnn.hpp>
 #include <opencv2/core/cuda.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include "TrtEngine.h"
 #include <algorithm>
 #include <chrono>
 #include <iostream>
@@ -50,10 +54,18 @@ int main(int argc, char** argv)
     if(argc < 2) { std::cerr << "usage: yolo_bench model.onnx [iterations=200]\n"; return 1; }
     const std::string model = argv[1];
     const int iters = argc > 2 ? std::atoi(argv[2]) : 200;
+    const std::string enginePath = argc > 3 ? argv[3] : "";
+    const std::string framePath = argc > 4 ? argv[4] : "";
 
     // same input as YOLOdetector: 640x480 frame letterboxed into 640x640
     cv::Mat frame(480, 640, CV_8UC3);
     cv::randu(frame, 0, 255);
+    if(!framePath.empty())
+    {
+        cv::Mat f = cv::imread(framePath, cv::IMREAD_COLOR);
+        if(f.size() == frame.size()) frame = f;
+        else std::cerr << "frame " << framePath << " not read or not 640x480: random pixels used\n";
+    }
     cv::Mat input(640, 640, CV_8UC3, cv::Scalar(114, 114, 114));
     frame.copyTo(input(cv::Rect(0, 80, 640, 480)));
     cv::Mat blob;
@@ -67,6 +79,7 @@ int main(int argc, char** argv)
                                    {"CUDA", cv::dnn::DNN_BACKEND_CUDA, cv::dnn::DNN_TARGET_CUDA},
                                    {"CUDA_FP16", cv::dnn::DNN_BACKEND_CUDA, cv::dnn::DNN_TARGET_CUDA_FP16}};
     std::vector<Result> res;
+    cv::Mat cudaDecoded;   // OpenCV CUDA decoded output, to compare TensorRT with
     for(const Cfg& c : cfgs)
     {
         cv::dnn::Net net = cv::dnn::readNetFromONNX(model);
@@ -93,6 +106,13 @@ int main(int argc, char** argv)
             res.push_back(timeIt(net, blob, heads, std::string(c.name) + " heads", iters));
         if(!decoded.empty())
             res.push_back(timeIt(net, blob, {decoded}, std::string(c.name) + " decoded", iters));
+        if(c.t == cv::dnn::DNN_TARGET_CUDA && !decoded.empty())
+        {
+            std::vector<cv::Mat> o;
+            net.setInput(blob);
+            net.forward(o, std::vector<std::string>{decoded});
+            cudaDecoded = o[0].clone();
+        }
 
         if(c.t == cv::dnn::DNN_TARGET_CUDA)
         {
@@ -111,6 +131,46 @@ int main(int argc, char** argv)
                 if(i >= names.size()) continue;
                 const std::string type = net.getLayer(names[i])->type;
                 std::cout << "  " << lt[i] * 1000.0 / cv::getTickFrequency() << " ms  " << type << "  " << names[i] << "\n";
+            }
+        }
+    }
+
+    if(!enginePath.empty())
+    {
+        TrtEngine trt;
+        if(!trt.Load(enginePath)) { std::cerr << "TensorRT engine not usable\n"; }
+        else
+        {
+            cv::Mat out;
+            for(int i = 0; i < 20; i++) trt.Infer(blob, out);   // warm-up
+            std::vector<double> t;
+            for(int i = 0; i < iters; i++)
+            {
+                const auto t0 = clk::now();
+                trt.Infer(blob, out);
+                t.push_back(std::chrono::duration<double, std::milli>(clk::now() - t0).count());
+            }
+            std::vector<double> s = t;
+            std::sort(s.begin(), s.end());
+            res.push_back({"TensorRT decoded", median(t), s[std::min(s.size() - 1, (size_t)(0.95 * s.size()))]});
+            if(!cudaDecoded.empty() && cudaDecoded.total() == out.total())
+            {
+                // compare: whole output, and the person score obj*cls0 that YOLOdetector thresholds at 0.4
+                const float* a = cudaDecoded.ptr<float>();
+                const float* b = out.ptr<float>();
+                const size_t n = out.total() / 85;
+                double maxAll = 0, maxPerson = 0;
+                int candA = 0, candB = 0, both = 0;
+                for(size_t r = 0; r < n; r++)
+                {
+                    for(int k = 0; k < 85; k++) maxAll = std::max(maxAll, (double)std::fabs(a[r * 85 + k] - b[r * 85 + k]));
+                    const double pa = a[r * 85 + 4] * a[r * 85 + 5], pb = b[r * 85 + 4] * b[r * 85 + 5];
+                    maxPerson = std::max(maxPerson, std::fabs(pa - pb));
+                    candA += pa >= 0.4; candB += pb >= 0.4; both += (pa >= 0.4 && pb >= 0.4);
+                }
+                std::cout << "\nTensorRT vs OpenCV CUDA, same input: max |diff| all values " << maxAll
+                          << ", person score " << maxPerson << "; person candidates >= 0.4: OpenCV " << candA
+                          << ", TensorRT " << candB << ", in both " << both << "\n";
             }
         }
     }

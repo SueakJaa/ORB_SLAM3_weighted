@@ -65,7 +65,14 @@ bool YOLOdetector::LoadModel(const std::string &modelPath)
         net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
     }
     mbGpu = useGpu;
-    std::cout << "[YOLO] backend = " << (useGpu ? (mbFp16 ? "CUDA FP16 (GPU)" : "CUDA (GPU)") : "OpenCV (CPU)")
+    // TensorRT (optional): only the network runs there; pre- and post-processing are the same code as below
+    const std::string trtPath = ORB_SLAM3::DynamicConfig::Get().yoloTrt;
+    if(!trtPath.empty())
+    {
+        mbTrt = mTrt.Load(trtPath);
+        std::cout << "[YOLO] TensorRT engine " << trtPath << (mbTrt ? " loaded" : " NOT usable -> OpenCV DNN") << std::endl;
+    }
+    std::cout << "[YOLO] backend = " << (mbTrt ? "TensorRT" : useGpu ? (mbFp16 ? "CUDA FP16 (GPU)" : "CUDA (GPU)") : "OpenCV (CPU)")
               << ", cv::getNumThreads()=" << cv::getNumThreads() << std::endl;
 
     // Warm-up: the first forward pass initialises CUDA/cuDNN (can take ~1 s);
@@ -108,6 +115,12 @@ bool YOLOdetector::LoadModel(const std::string &modelPath)
         net.setInput(blob);
         std::vector<cv::Mat> warm;
         net.forward(warm, mvOutNames);
+    }
+    if(mbTrt)
+    {
+        cv::Mat warm;
+        for(int i = 0; i < 10; i++)
+            if(!mTrt.Infer(blob, warm)) { mbTrt = false; std::cout << "[YOLO] TensorRT warm-up failed -> OpenCV DNN" << std::endl; break; }
     }
 
     return true;
@@ -166,7 +179,6 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
     else
         cv::dnn::blobFromImage(input, blob, 1/255.0, cv::Size(640, 640), cv::Scalar(), true, false);
     cv::Mat confMap(image.rows, image.cols, CV_32F, cv::Scalar(0));
-    net.setInput(blob);
 
     // Read ALL network outputs. Two YOLOv5 export styles exist:
     //  (a) decoded:  one output [1, N, 85] with boxes in pixels and sigmoid scores (current yolov5 export)
@@ -175,7 +187,17 @@ cv::Mat YOLOdetector::Infer(const cv::Mat &image)
     //      YOLOv5's Detect layer (checked against an official decoded export: max diff 2e-4).
     std::vector<cv::Mat> outs;
     const clk::time_point tFwd0 = clk::now();
-    net.forward(outs, mvOutNames);
+    bool trtDone = false;
+    if(mbTrt)
+    {
+        cv::Mat decoded;
+        if(blob.isContinuous() && mTrt.Infer(blob, decoded)) { outs.push_back(decoded); trtDone = true; }
+    }
+    if(!trtDone)
+    {
+        net.setInput(blob);
+        net.forward(outs, mvOutNames);
+    }
     const clk::time_point tFwd1 = clk::now();
     mfPreMs = ms(tPre0, tFwd0);
     mfFwdMs = ms(tFwd0, tFwd1);

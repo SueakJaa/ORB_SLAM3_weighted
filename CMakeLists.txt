@@ -53,6 +53,32 @@ ${Pangolin_INCLUDE_DIRS}
 
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/lib)
 
+# ---- optional TensorRT for the YOLO network (speed step 3, 26 Nov; scripts/trt/README.md) ----
+# Found automatically: libraries from `pip install tensorrt...` (site-packages/tensorrt_libs) or a system/tar
+# install; headers from scripts/trt/fetch_headers.sh (Thirdparty/tensorrt/include) or the system.
+# Without TensorRT everything builds as before and YOLO uses OpenCV DNN.  -DWITH_TENSORRT=OFF to skip.
+option(WITH_TENSORRT "Use TensorRT for YOLO if found" ON)
+set(TRT_LIBS "")
+if(WITH_TENSORRT)
+  execute_process(COMMAND python3 -c "import tensorrt_libs, os; print(os.path.dirname(tensorrt_libs.__file__))"
+                  OUTPUT_VARIABLE TRT_PIP_LIB_DIR OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+  find_path(TENSORRT_INCLUDE_DIR NvInfer.h
+            HINTS ${PROJECT_SOURCE_DIR}/Thirdparty/tensorrt/include $ENV{TENSORRT_ROOT}/include
+                  /usr/include/x86_64-linux-gnu /usr/local/TensorRT/include)
+  find_library(TENSORRT_LIB NAMES nvinfer libnvinfer.so.10 libnvinfer.so.8
+               HINTS ${TRT_PIP_LIB_DIR} $ENV{TENSORRT_ROOT}/lib /usr/lib/x86_64-linux-gnu /usr/local/TensorRT/lib)
+  find_path(CUDART_INCLUDE_DIR cuda_runtime_api.h HINTS /usr/local/cuda/include)
+  find_library(CUDART_LIB cudart HINTS /usr/local/cuda/lib64)
+  if(TENSORRT_INCLUDE_DIR AND TENSORRT_LIB AND CUDART_INCLUDE_DIR AND CUDART_LIB)
+    add_definitions(-DUSE_TENSORRT)
+    include_directories(${TENSORRT_INCLUDE_DIR} ${CUDART_INCLUDE_DIR})
+    set(TRT_LIBS ${TENSORRT_LIB} ${CUDART_LIB})
+    message(STATUS "TensorRT: ${TENSORRT_LIB}  headers: ${TENSORRT_INCLUDE_DIR}")
+  else()
+    message(STATUS "TensorRT not found (lib '${TENSORRT_LIB}', headers '${TENSORRT_INCLUDE_DIR}'): YOLO uses OpenCV DNN")
+  endif()
+endif()
+
 add_library(${PROJECT_NAME} SHARED
 src/System.cc
 src/Tracking.cc
@@ -83,6 +109,7 @@ src/TwoViewReconstruction.cc
 src/Config.cc
 src/Settings.cc
 src/YOLOdetector.cc
+src/TrtEngine.cc
 include/System.h
 include/Tracking.h
 include/LocalMapping.h
@@ -124,6 +151,7 @@ ${PROJECT_SOURCE_DIR}/Thirdparty/DBoW2/lib/libDBoW2.so
 ${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.so
 -lboost_serialization
 -lcrypto
+${TRT_LIBS}
 )
 
 # If RealSense SDK is found the library is added and its examples compiled
@@ -147,8 +175,8 @@ add_executable(rgbd_tum
 target_link_libraries(rgbd_tum ${PROJECT_NAME})
 
 # speed step 2: YOLO network benchmark (CPU / CUDA / CUDA FP16), binary in tools/
-add_executable(yolo_bench tools/yolo_bench.cc)
-target_link_libraries(yolo_bench ${OpenCV_LIBS})
+add_executable(yolo_bench tools/yolo_bench.cc src/TrtEngine.cc)
+target_link_libraries(yolo_bench ${OpenCV_LIBS} ${TRT_LIBS})
 set_target_properties(yolo_bench PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/tools)
 
 if(realsense2_FOUND)

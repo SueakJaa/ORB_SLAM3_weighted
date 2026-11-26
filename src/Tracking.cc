@@ -4625,7 +4625,7 @@ void Tracking::PrintDynamicStats()
     TimingLine("yolo_fwd_ms", mvTimeYoloFwdMs);
     TimingLine("yolo_post_ms", mvTimeYoloPostMs);
     TimingLine("yolo_wait_ms", mvTimeYoloWaitMs);
-    if(mpYOLO) std::cout << " yolo_backend=" << (mpYOLO->mbGpu ? (mpYOLO->mbFp16 ? "cuda_fp16" : "cuda") : "cpu");
+    if(mpYOLO) std::cout << " yolo_backend=" << (mpYOLO->mbTrt ? "tensorrt" : mpYOLO->mbGpu ? (mpYOLO->mbFp16 ? "cuda_fp16" : "cuda") : "cpu");
     TimingLine("track_ms", mvTimeTrackMs);
     TimingLine("total_ms", mvTimeTotalMs);
     if(mpLocalMapper)
